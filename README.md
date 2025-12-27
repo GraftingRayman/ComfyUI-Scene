@@ -24,17 +24,23 @@ Clone/copy this folder to ComfyUI/custom_nodes/
 
 Ensure all Python dependencies are installed:
 
-bash
+
 pip install torch torchvision transformers opencv-python Pillow scenedetect numpy aiohttp
+
 Restart ComfyUI
 
-Model Requirements:
+
+<b>Model Requirements:</b>
+
 Moondream2 (~1.5GB) will be automatically downloaded on first use
 
-Model location: ~/.cache/huggingface/hub/models--vikhyatk--moondream2/
+<b>Model location: </b>
+
+~/.cache/huggingface/hub/models--vikhyatk--moondream2/
 
 
-Supported Video Formats:
+<b>Supported Video Formats:</b>
+
 .mp4, .avi, .mov, .mkv, .webm, .flv, .wmv, .m4v, .mpg, .mpeg
 
 

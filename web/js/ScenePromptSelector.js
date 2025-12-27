@@ -175,13 +175,10 @@ app.registerExtension({
                             
                             // Load and display image
                             if (data.has_image && this.imagePreview && this.imageStatus) {
-                                // Build image URL
-                                const sceneFile = `scene_${String(sceneNumber).padStart(3, '0')}.png`;
+                                // Build image URL using the actual image file name
+                                let imagePath = `${keyframesPath}/keyframes/${data.image_file}`;
                                 
-                                // Check if keyframes subdirectory exists by trying both paths
-                                let imagePath = `${keyframesPath}/keyframes/${sceneFile}`;
-                                
-                                // Convert to URL-friendly format and load image
+                                // Try with keyframes subdirectory first
                                 const imageUrl = `/scene_prompt/image?path=${encodeURIComponent(imagePath)}`;
                                 
                                 this.imagePreview.onload = () => {
@@ -191,7 +188,7 @@ app.registerExtension({
                                 
                                 this.imagePreview.onerror = () => {
                                     // Try without keyframes subdirectory
-                                    const altImagePath = `${keyframesPath}/${sceneFile}`;
+                                    const altImagePath = `${keyframesPath}/${data.image_file}`;
                                     const altImageUrl = `/scene_prompt/image?path=${encodeURIComponent(altImagePath)}`;
                                     this.imagePreview.src = altImageUrl;
                                     

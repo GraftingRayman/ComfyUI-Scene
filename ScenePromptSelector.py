@@ -89,11 +89,15 @@ class ScenePromptSelector:
         else:
             return []
         
-        # Look for scene_XXX.png files
+        # Look for scene_XXX_YYmZZsWWWms.png files
         keyframes = []
-        for filename in sorted(os.listdir(actual_path)):
-            if filename.startswith("scene_") and filename.endswith(".png"):
-                keyframes.append(os.path.join(actual_path, filename))
+        try:
+            files = sorted(os.listdir(actual_path))
+            for filename in files:
+                if filename.startswith("scene_") and filename.endswith(".png"):
+                    keyframes.append(os.path.join(actual_path, filename))
+        except Exception as e:
+            print(f"Error listing directory: {e}")
         
         return keyframes
     
@@ -107,25 +111,86 @@ class ScenePromptSelector:
             actual_path = keyframes_path
         
         try:
-            # Build the prompt filename: scene_XXX.txt
-            prompt_file = f"scene_{scene_idx + 1:03d}.txt"
-            prompt_path = os.path.join(actual_path, prompt_file)
+            # Find the corresponding .txt file for the scene
+            png_pattern = f"scene_{scene_idx + 1:03d}_"
             
-            if os.path.exists(prompt_path):
-                with open(prompt_path, 'r', encoding='utf-8') as f:
-                    prompt_text = f.read().strip()
-                print(f"Loaded prompt from: {prompt_path}")
-                return prompt_text
-            else:
-                print(f"Warning: Prompt file not found at {prompt_path}")
-                return f"Scene {scene_idx + 1}"
+            # Look for matching PNG file
+            png_files = [f for f in os.listdir(actual_path) 
+                        if f.startswith(png_pattern) and f.endswith('.png')]
+            
+            if not png_files:
+                # Try without timestamp pattern
+                png_files = [f for f in os.listdir(actual_path) 
+                           if f == f"scene_{scene_idx + 1:03d}.png"]
+            
+            if png_files:
+                # Get the PNG filename and create corresponding TXT filename
+                png_file = png_files[0]
+                txt_file = png_file.replace('.png', '.txt')
+                prompt_path = os.path.join(actual_path, txt_file)
+                
+                if os.path.exists(prompt_path):
+                    with open(prompt_path, 'r', encoding='utf-8') as f:
+                        prompt_text = f.read().strip()
+                    print(f"Loaded prompt from: {prompt_path}")
+                    return prompt_text
+                else:
+                    print(f"Warning: Prompt file not found at {prompt_path}")
+                    # Try to find any .txt file with scene number in name
+                    txt_pattern = f"scene_{scene_idx + 1:03d}"
+                    txt_files = [f for f in os.listdir(actual_path) 
+                                if f.startswith(txt_pattern) and f.endswith('.txt')]
+                    if txt_files:
+                        prompt_path = os.path.join(actual_path, txt_files[0])
+                        with open(prompt_path, 'r', encoding='utf-8') as f:
+                            prompt_text = f.read().strip()
+                        print(f"Loaded prompt from alternative: {prompt_path}")
+                        return prompt_text
+            return f"Scene {scene_idx + 1}"
         except Exception as e:
             print(f"Error loading prompt file: {e}")
             return f"Scene {scene_idx + 1}"
     
+    def get_scene_image_path(self, keyframes_path, scene_idx):
+        """Get the image path for a specific scene index"""
+        # Check if keyframes subdirectory exists
+        keyframes_subdir = os.path.join(keyframes_path, "keyframes")
+        if os.path.exists(keyframes_subdir):
+            actual_path = keyframes_subdir
+        else:
+            actual_path = keyframes_path
+        
+        try:
+            # Look for pattern: scene_001_01m23s456ms.png
+            pattern = f"scene_{scene_idx + 1:03d}_"
+            png_files = [f for f in os.listdir(actual_path) 
+                        if f.startswith(pattern) and f.endswith('.png')]
+            
+            if not png_files:
+                # Fallback to old format: scene_001.png
+                pattern = f"scene_{scene_idx + 1:03d}.png"
+                png_files = [f for f in os.listdir(actual_path) 
+                           if f == pattern]
+            
+            if png_files:
+                # Sort to ensure we get the right one (should be only one anyway)
+                png_files.sort()
+                return os.path.join(actual_path, png_files[0])
+            else:
+                print(f"Warning: No image found for scene {scene_idx + 1}")
+                return None
+        except Exception as e:
+            print(f"Error finding image: {e}")
+            return None
+    
     def load_image_as_tensor(self, image_path):
         """Load image and convert to ComfyUI tensor format"""
         try:
+            if not image_path or not os.path.exists(image_path):
+                # Return a blank image if loading fails
+                blank = np.zeros((512, 512, 3), dtype=np.float32)
+                return torch.from_numpy(blank)[None,]
+            
             img = Image.open(image_path)
             img = img.convert("RGB")
             img_np = np.array(img).astype(np.float32) / 255.0
@@ -149,13 +214,11 @@ class ScenePromptSelector:
         if selected_prompt and selected_prompt.strip():
             print("Using selected_prompt from widget (UI-edited)")
             # Still need to load the image
-            if keyframes_path and os.path.exists(keyframes_path):
+            if keyframes_path:
                 scene_idx = max(0, scene_number - 1)
-                scene_file = f"scene_{scene_idx + 1:03d}.png"
-                full_image_path = os.path.join(keyframes_path, scene_file)
-                
-                if os.path.exists(full_image_path):
-                    scene_image = self.load_image_as_tensor(full_image_path)
+                image_path = self.get_scene_image_path(keyframes_path, scene_idx)
+                if image_path:
+                    scene_image = self.load_image_as_tensor(image_path)
                 else:
                     scene_image = self.load_image_as_tensor("")
             else:
@@ -188,22 +251,13 @@ class ScenePromptSelector:
                 selected_prompt = prompts[scene_idx]
                 
                 # Get image path for selected scene
-                if keyframes_path and os.path.exists(keyframes_path):
-                    # Check if keyframes subdirectory exists
-                    keyframes_subdir = os.path.join(keyframes_path, "keyframes")
-                    if os.path.exists(keyframes_subdir):
-                        actual_path = keyframes_subdir
+                if keyframes_path:
+                    image_path = self.get_scene_image_path(keyframes_path, scene_idx)
+                    if image_path:
+                        scene_image = self.load_image_as_tensor(image_path)
+                        print(f"Loaded image: {image_path}")
                     else:
-                        actual_path = keyframes_path
-                    
-                    scene_file = f"scene_{scene_idx + 1:03d}.png"
-                    full_image_path = os.path.join(actual_path, scene_file)
-                    
-                    if os.path.exists(full_image_path):
-                        scene_image = self.load_image_as_tensor(full_image_path)
-                        print(f"Loaded image: {full_image_path}")
-                    else:
-                        print(f"Warning: Image not found at {full_image_path}")
+                        print(f"Warning: Image not found for scene {scene_idx + 1}")
                         scene_image = self.load_image_as_tensor("")
                 else:
                     scene_image = self.load_image_as_tensor("")

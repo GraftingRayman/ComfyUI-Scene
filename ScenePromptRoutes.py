@@ -1,5 +1,5 @@
-# Add these routes to your existing routes.py file
 import os
+import re
 import server
 from aiohttp import web
 
@@ -60,45 +60,64 @@ async def read_scene_prompt(request):
         except Exception as e:
             print(f"Error listing directory: {e}")
     
-    # Build file paths
+    # Find matching files for this scene
     scene_idx = scene_number - 1
-    prompt_file = f"scene_{scene_number:03d}.txt"
-    image_file = f"scene_{scene_number:03d}.png"
     
-    prompt_path = os.path.join(actual_path, prompt_file)
-    image_path = os.path.join(actual_path, image_file)
+    # Pattern for new format: scene_001_01m23s456ms.png
+    png_pattern = f"scene_{scene_number:03d}_"
     
-    print(f"Looking for prompt file: {prompt_path}")
-    print(f"Prompt file exists: {os.path.exists(prompt_path)}")
-    print(f"Looking for image file: {image_path}")
-    print(f"Image file exists: {os.path.exists(image_path)}")
+    # Find matching PNG files
+    png_files = []
+    txt_files = []
+    
+    if os.path.isdir(actual_path):
+        try:
+            for filename in os.listdir(actual_path):
+                if filename.startswith(png_pattern) and filename.endswith('.png'):
+                    png_files.append(filename)
+                elif filename.startswith(png_pattern) and filename.endswith('.txt'):
+                    txt_files.append(filename)
+        except Exception as e:
+            print(f"Error listing files: {e}")
+    
+    # If no files found with timestamp pattern, try old format
+    if not png_files:
+        old_png = f"scene_{scene_number:03d}.png"
+        old_txt = f"scene_{scene_number:03d}.txt"
+        if os.path.exists(os.path.join(actual_path, old_png)):
+            png_files = [old_png]
+        if os.path.exists(os.path.join(actual_path, old_txt)):
+            txt_files = [old_txt]
+    
+    print(f"Found PNG files: {png_files}")
+    print(f"Found TXT files: {txt_files}")
     
     # Security check: ensure paths are within allowed directory
-    abs_prompt_path = os.path.abspath(prompt_path)
     abs_base_path = os.path.abspath(keyframes_path)
-    print(f"Absolute prompt path: {abs_prompt_path}")
-    print(f"Absolute base path: {abs_base_path}")
-    print(f"Security check: {abs_prompt_path.startswith(abs_base_path)}")
     
-    if not abs_prompt_path.startswith(abs_base_path):
-        return web.json_response({
-            "error": "Invalid file path",
-            "prompt": "",
-            "has_image": False
-        }, status=403)
-    
-    # Read prompt if exists
+    # Read prompt
     prompt_text = ""
-    if os.path.exists(prompt_path):
+    
+    # Try to find and read prompt file
+    for txt_file in txt_files:
+        prompt_path = os.path.join(actual_path, txt_file)
+        abs_prompt_path = os.path.abspath(prompt_path)
+        
+        if not abs_prompt_path.startswith(abs_base_path):
+            continue
+            
         try:
             with open(prompt_path, 'r', encoding='utf-8') as f:
                 prompt_text = f.read().strip()
+            print(f"Loaded prompt from: {prompt_path}")
+            break
         except Exception as e:
-            print(f"Error reading prompt file: {e}")
-            prompt_text = f"Scene {scene_number}"
-    else:
-        # Check if prompts_text exists in the directory
-        prompts_text_path = os.path.join(actual_path, "prompts_text.txt")
+            print(f"Error reading prompt file {prompt_path}: {e}")
+    
+    # If no prompt file found, fallback
+    if not prompt_text:
+        # Check if prompts_text.txt exists
+        prompts_text_path = os.path.join(actual_path, "scene_prompts.txt")
         if os.path.exists(prompts_text_path):
             try:
                 with open(prompts_text_path, 'r', encoding='utf-8') as f:
@@ -108,7 +127,6 @@ async def read_scene_prompt(request):
                     if scene_idx < len(scenes):
                         scene_text = scenes[scene_idx].strip()
                         # Try to extract prompt after "Scene X:"
-                        import re
                         match = re.match(r'Scene\s+\d+:\s*(.+)', scene_text, re.DOTALL)
                         if match:
                             prompt_text = match.group(1).strip()
@@ -117,26 +135,53 @@ async def read_scene_prompt(request):
                     else:
                         prompt_text = f"Scene {scene_number}"
             except Exception as e:
-                print(f"Error reading prompts_text.txt: {e}")
+                print(f"Error reading scene_prompts.txt: {e}")
                 prompt_text = f"Scene {scene_number}"
         else:
             prompt_text = f"Scene {scene_number}"
     
     # Check if image exists
-    has_image = os.path.exists(image_path)
+    has_image = False
+    image_file = None
     
-    # Count total scenes
+    for png_file in png_files:
+        image_path = os.path.join(actual_path, png_file)
+        if os.path.exists(image_path):
+            has_image = True
+            image_file = png_file
+            break
+    
+    # Count total scenes (based on unique scene numbers in filenames)
     total_scenes = 0
-    if os.path.exists(actual_path):
-        for filename in os.listdir(actual_path):
-            if filename.startswith("scene_") and filename.endswith(".png"):
-                total_scenes += 1
+    scene_numbers = set()
+    
+    if os.path.isdir(actual_path):
+        try:
+            for filename in os.listdir(actual_path):
+                if filename.startswith("scene_") and (filename.endswith(".png") or filename.endswith(".txt")):
+                    # Extract scene number
+                    # Match patterns: scene_001_ or scene_001.
+                    match = re.match(r'scene_(\d{3})[_\.]', filename)
+                    if match:
+                        scene_num = int(match.group(1))
+                        scene_numbers.add(scene_num)
+        except Exception as e:
+            print(f"Error counting scenes: {e}")
+    
+    total_scenes = len(scene_numbers) if scene_numbers else 0
+    
+    # If no scenes found by parsing, count PNG files
+    if total_scenes == 0:
+        png_count = sum(1 for f in os.listdir(actual_path) 
+                       if f.startswith("scene_") and f.endswith(".png"))
+        total_scenes = png_count
     
     return web.json_response({
         "prompt": prompt_text,
         "has_image": has_image,
         "total_scenes": total_scenes,
-        "scene_number": scene_number
+        "scene_number": scene_number,
+        "image_file": image_file
     }, status=200)
 
 

@@ -2,6 +2,12 @@ ComfyUI-Scene
 
 This ComfyUI extension provides a complete workflow for analyzing video content, generating scene descriptions, and creating AI image prompts. It consists of three interconnected nodes that work together to transform video content into usable AI art prompts with visual previews.
 
+Updates:
+
+27/12/2023 - Added Start and End Time selection
+
+27/12/2023 - Initial Release
+
 <b>Key Features:</b>
 
 Video Scene Detection - Automatically detects scene changes in videos

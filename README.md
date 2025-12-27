@@ -8,3 +8,6 @@ Uses pyscene to extract scenes from video files, creates prompts for the scene u
 
 See workflow in workflow directory
 
+Prompt can be modified before execution in Scene Prompt Selector
+
+Scene Prompt Modifier can modify the prompt without regenerating all scenes.

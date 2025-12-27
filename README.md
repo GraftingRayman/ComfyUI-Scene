@@ -109,9 +109,11 @@ If images don't preview, ensure ComfyUI web server is running
 
 For long videos, process in time segments using start/end time parameters
 
-<img width="1418" height="895" alt="image" src="https://github.com/user-attachments/assets/251e63d6-c146-4be0-b0c8-f3e008dbc3d6" />
+<img width="3288" height="1729" alt="image" src="https://github.com/user-attachments/assets/935757b8-10e6-44ca-8a36-fad956074ab1" />
 
-<img width="1426" height="889" alt="image" src="https://github.com/user-attachments/assets/68c97919-833e-43d8-985a-e814c9c6c6b2" />
+
+<img width="3352" height="1745" alt="image" src="https://github.com/user-attachments/assets/04328bf0-2cec-42f8-8eb5-4c43c982dc22" />
+
 
 See workflow in workflow directory
 

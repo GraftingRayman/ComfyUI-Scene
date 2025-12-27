@@ -2,7 +2,7 @@ ComfyUI-Scene
 
 This ComfyUI extension provides a complete workflow for analyzing video content, generating scene descriptions, and creating AI image prompts. It consists of three interconnected nodes that work together to transform video content into usable AI art prompts with visual previews.
 
-<b>Key Features:
+<b>Key Features:</b>
 
 Video Scene Detection - Automatically detects scene changes in videos
 
@@ -18,7 +18,7 @@ Real-time Preview - See keyframes and prompts without re-executing nodes
 
 
 
-Installation:
+<b>Installation:</b>
 Clone/copy this folder to ComfyUI/custom_nodes/
 
 Ensure all Python dependencies are installed:
@@ -37,7 +37,7 @@ Supported Video Formats:
 .mp4, .avi, .mov, .mkv, .webm, .flv, .wmv, .m4v, .mpg, .mpeg
 
 
-Notes:
+<b>Notes:</b>
 First run will download Moondream2 model (~1-5 minutes depending on internet)
 
 Large videos may require significant disk space for keyframe extraction

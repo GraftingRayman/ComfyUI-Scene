@@ -15,32 +15,7 @@ Time-Range Support - Process specific sections of long videos
 
 Real-time Preview - See keyframes and prompts without re-executing nodes
 
-Workflow:
-VideoSceneGenerationNode - Analyze video → Detect scenes → Extract keyframes → Generate prompts
 
-ScenePromptSelector - Browse scenes visually → Select prompts → Preview keyframes
-
-ScenePromptModifier - Customize prompts → Adjust style/lighting → Refine for AI generation
-
-📄 Requirements
-Python Dependencies:
-txt
-torch>=2.0.0
-torchvision>=0.15.0
-transformers>=4.35.0
-opencv-python>=4.8.0
-Pillow>=10.0.0
-scenedetect>=0.6.2
-numpy>=1.24.0
-aiohttp>=3.9.0
-System Requirements:
-ComfyUI version with web API support
-
-GPU with CUDA support recommended (for Moondream2 model)
-
-RAM: Minimum 8GB, 16GB+ recommended for video processing
-
-Disk Space: Enough for storing extracted keyframes (typically 100-500MB per video)
 
 Installation:
 Clone/copy this folder to ComfyUI/custom_nodes/
@@ -56,40 +31,10 @@ Moondream2 (~1.5GB) will be automatically downloaded on first use
 
 Model location: ~/.cache/huggingface/hub/models--vikhyatk--moondream2/
 
-File Structure:
-text
-video_scene_generation/
-
-├── __init__.py              # Node registration
-
-├── VideoSceneGeneration.py  # Main video analysis node
-
-├── ScenePromptSelector.py   # Scene selection node
-
-├── ScenePromptSelector.js   # Web UI extension
-
-├── ScenePromptRoutes.py     # API endpoints
-
-└── ScenePromptModifier.py   # Prompt editing node
 
 Supported Video Formats:
 .mp4, .avi, .mov, .mkv, .webm, .flv, .wmv, .m4v, .mpg, .mpeg
 
-Output Format:
-text
-output_folder/
-
-├── keyframes/
-
-│   ├── scene_001_01m23s456ms.png
-
-│   ├── scene_001_01m23s456ms.txt
-
-│   ├── scene_002_02m45s789ms.png
-
-│   └── scene_002_02m45s789ms.txt
-
-└── scene_prompts.txt
 
 Notes:
 First run will download Moondream2 model (~1-5 minutes depending on internet)
@@ -98,16 +43,8 @@ Large videos may require significant disk space for keyframe extraction
 
 Scene detection threshold can be adjusted for different video types
 
-Web UI requires ComfyUI with web server enabled
-
-Troubleshooting:
-If scene detection fails, adjust scene_threshold parameter (higher = fewer scenes)
-
-If Moondream2 fails to load, check internet connection and disk space
-
-If images don't preview, ensure ComfyUI web server is running
-
 For long videos, process in time segments using start/end time parameters
+
 
 <img width="3288" height="1729" alt="image" src="https://github.com/user-attachments/assets/935757b8-10e6-44ca-8a36-fad956074ab1" />
 

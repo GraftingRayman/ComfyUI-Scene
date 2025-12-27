@@ -19,6 +19,7 @@ Real-time Preview - See keyframes and prompts without re-executing nodes
 
 
 <b>Installation:</b>
+
 Clone/copy this folder to ComfyUI/custom_nodes/
 
 Ensure all Python dependencies are installed:
@@ -38,6 +39,7 @@ Supported Video Formats:
 
 
 <b>Notes:</b>
+
 First run will download Moondream2 model (~1-5 minutes depending on internet)
 
 Large videos may require significant disk space for keyframe extraction

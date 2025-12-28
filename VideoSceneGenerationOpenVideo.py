@@ -4,13 +4,13 @@ import torch
 import folder_paths
 from PIL import Image
 from transformers import AutoTokenizer, AutoModelForCausalLM
-from scenedetect import VideoManager, SceneManager
+from scenedetect import SceneManager, open_video
 from scenedetect.detectors import ContentDetector
 from scenedetect.frame_timecode import FrameTimecode
 import comfy.utils
 
 
-class VideoSceneGenerationNode:
+class VideoSceneGenerationOpenVideoNode:
     
     def __init__(self):
         self.tokenizer = None
@@ -166,37 +166,30 @@ class VideoSceneGenerationNode:
     
     def detect_scenes(self, video_path, threshold=27.0, start_time_seconds=None, end_time_seconds=None):
         try:
-            vm = VideoManager([video_path])
+            video_stream = open_video(video_path)
+            fps = video_stream.frame_rate
             
-            vm.start()
-            fps = vm.get_framerate()
-            vm.release()
-            
-            vm = VideoManager([video_path])
-            
-            if start_time_seconds is not None and start_time_seconds > 0:
-                start_time = FrameTimecode(timecode=start_time_seconds, fps=fps)
-                print(f"Setting start time to: {start_time_seconds}s ({start_time.get_frames()} frames)")
-                
-            if end_time_seconds is not None and end_time_seconds > 0:
-                end_time = FrameTimecode(timecode=end_time_seconds, fps=fps)
-                print(f"Setting end time to: {end_time_seconds}s ({end_time.get_frames()} frames)")
-            
-            if start_time_seconds is not None and start_time_seconds > 0:
-                if end_time_seconds is not None and end_time_seconds > 0:
-                    vm.set_duration(start_time=start_time, end_time=end_time)
-                else:
-                    vm.set_duration(start_time=start_time)
-            elif end_time_seconds is not None and end_time_seconds > 0:
-                vm.set_duration(end_time=end_time)
+            print(f"Video FPS: {fps}")
             
             sm = SceneManager()
             sm.add_detector(ContentDetector(threshold=threshold))
             
-            vm.start()
-            sm.detect_scenes(frame_source=vm)
-            scenes = sm.get_scene_list()
-            vm.release()
+            sm.detect_scenes(video=video_stream)
+            all_scenes = sm.get_scene_list()
+            
+            scenes = []
+            for scene in all_scenes:
+                scene_start = scene[0].get_seconds()
+                scene_end = scene[1].get_seconds()
+                
+                include_scene = True
+                if start_time_seconds is not None and scene_end < start_time_seconds:
+                    include_scene = False
+                if end_time_seconds is not None and scene_start > end_time_seconds:
+                    include_scene = False
+                
+                if include_scene:
+                    scenes.append(scene)
             
             return scenes
             
@@ -366,7 +359,7 @@ class VideoSceneGenerationNode:
             )
             
             if not scenes:
-                return ("", "Warning: No scenes detected in the specified time range", sanitized_subfolder)
+                return ("", "Warning: No scenes detected in the specified time range", keyframe_dir)
             
             print(f"Detected {len(scenes)} scenes")
             
@@ -374,7 +367,7 @@ class VideoSceneGenerationNode:
             keyframes = self.extract_keyframes(video_path, scenes, keyframe_dir)
             
             if not keyframes:
-                return ("", "Error: Failed to extract keyframes", sanitized_subfolder)
+                return ("", "Error: Failed to extract keyframes", keyframe_dir)
             
             print("Generating scene descriptions...")
             prompts = self.generate_descriptions(
@@ -428,8 +421,7 @@ class VideoSceneGenerationNode:
                 f"Combined prompts saved to: {prompt_file}"
             )
             
-            # Return just the subfolder name, not the full path
-            return (prompts_text, status_message, sanitized_subfolder)
+            return (prompts_text, status_message, output_folder)
             
         except Exception as e:
             error_msg = f"Error: {str(e)}"
@@ -440,11 +432,11 @@ class VideoSceneGenerationNode:
 
 
 NODE_CLASS_MAPPINGS = {
-    "VideoSceneGenerationNode": VideoSceneGenerationNode
+    "VideoSceneGenerationOpenVideoNode": VideoSceneGenerationOpenVideoNode
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "VideoSceneGenerationNode": "Video Scene Analysis & Prompt Generation"
+    "VideoSceneGenerationOpenVideoNode": "Video Scene Analysis & Prompt Generation - Open Video"
 }
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"]

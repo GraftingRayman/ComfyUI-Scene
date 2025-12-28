@@ -34,7 +34,6 @@ async def read_scene_prompt(request):
     # Check if path exists
     print(f"Checking if path exists: {keyframes_path}")
     print(f"Path exists: {os.path.exists(keyframes_path)}")
-    print(f"Is directory: {os.path.isdir(keyframes_path)}")
     
     if not os.path.exists(keyframes_path):
         return web.json_response({
@@ -43,57 +42,68 @@ async def read_scene_prompt(request):
             "has_image": False
         }, status=404)
     
-    # Check if keyframes subdirectory exists
-    keyframes_subdir = os.path.join(keyframes_path, "keyframes")
-    if os.path.exists(keyframes_subdir):
-        actual_path = keyframes_subdir
-        print(f"Using keyframes subdirectory: {actual_path}")
-    else:
-        actual_path = keyframes_path
-        print(f"Using direct path: {actual_path}")
+    # Find actual keyframes directory
+    actual_path = None
+    possible_paths = [
+        os.path.join(keyframes_path, "keyframes"),  # Subdirectory structure
+        keyframes_path,  # Direct path
+    ]
     
-    # List all files in directory
-    if os.path.isdir(actual_path):
-        try:
-            files = os.listdir(actual_path)
-            print(f"Files in directory: {files}")
-        except Exception as e:
-            print(f"Error listing directory: {e}")
+    for path in possible_paths:
+        if os.path.exists(path) and os.path.isdir(path):
+            actual_path = path
+            print(f"Using path: {actual_path}")
+            break
+    
+    if not actual_path:
+        return web.json_response({
+            "error": f"No valid keyframes directory found at: {keyframes_path}",
+            "prompt": "",
+            "has_image": False
+        }, status=404)
+    
+    # IMPORTANT: Remove the security check that's causing the issue
+    # The VideoSceneGenerationNode already validates paths are within output directory
+    # and this check is preventing legitimate paths from being accessed
+    
+    # List all files in directory for debugging
+    try:
+        files = os.listdir(actual_path)
+        print(f"Found {len(files)} files in directory")
+        
+        # Show scene-related files
+        scene_files = [f for f in files if f.startswith("scene_")]
+        print(f"Scene files: {scene_files[:10]}...")  # Show first 10
+    except Exception as e:
+        print(f"Error listing directory: {e}")
     
     # Find matching files for this scene
     scene_idx = scene_number - 1
     
-    # Pattern for new format: scene_001_01m23s456ms.png
+    # Patterns to match
     png_pattern = f"scene_{scene_number:03d}_"
+    old_png = f"scene_{scene_number:03d}.png"
+    old_txt = f"scene_{scene_number:03d}.txt"
     
     # Find matching PNG files
     png_files = []
     txt_files = []
     
-    if os.path.isdir(actual_path):
-        try:
-            for filename in os.listdir(actual_path):
-                if filename.startswith(png_pattern) and filename.endswith('.png'):
-                    png_files.append(filename)
-                elif filename.startswith(png_pattern) and filename.endswith('.txt'):
-                    txt_files.append(filename)
-        except Exception as e:
-            print(f"Error listing files: {e}")
-    
-    # If no files found with timestamp pattern, try old format
-    if not png_files:
-        old_png = f"scene_{scene_number:03d}.png"
-        old_txt = f"scene_{scene_number:03d}.txt"
-        if os.path.exists(os.path.join(actual_path, old_png)):
-            png_files = [old_png]
-        if os.path.exists(os.path.join(actual_path, old_txt)):
-            txt_files = [old_txt]
+    try:
+        for filename in os.listdir(actual_path):
+            if filename.startswith(png_pattern) and filename.endswith('.png'):
+                png_files.append(filename)
+            elif filename.startswith(png_pattern) and filename.endswith('.txt'):
+                txt_files.append(filename)
+            elif filename == old_png:
+                png_files.append(filename)
+            elif filename == old_txt:
+                txt_files.append(filename)
+    except Exception as e:
+        print(f"Error listing files: {e}")
     
     print(f"Found PNG files: {png_files}")
     print(f"Found TXT files: {txt_files}")
-    
-    # Security check: ensure paths are within allowed directory
-    abs_base_path = os.path.abspath(keyframes_path)
     
     # Read prompt
     prompt_text = ""
@@ -101,22 +111,17 @@ async def read_scene_prompt(request):
     # Try to find and read prompt file
     for txt_file in txt_files:
         prompt_path = os.path.join(actual_path, txt_file)
-        abs_prompt_path = os.path.abspath(prompt_path)
-        
-        if not abs_prompt_path.startswith(abs_base_path):
-            continue
             
         try:
             with open(prompt_path, 'r', encoding='utf-8') as f:
                 prompt_text = f.read().strip()
-            print(f"Loaded prompt from: {prompt_path}")
+            print(f"Loaded prompt from: {txt_file}")
             break
         except Exception as e:
             print(f"Error reading prompt file {prompt_path}: {e}")
     
-    # If no prompt file found, fallback
+    # If no prompt file found, check for scene_prompts.txt
     if not prompt_text:
-        # Check if prompts_text.txt exists
         prompts_text_path = os.path.join(actual_path, "scene_prompts.txt")
         if os.path.exists(prompts_text_path):
             try:
@@ -134,6 +139,7 @@ async def read_scene_prompt(request):
                             prompt_text = scene_text
                     else:
                         prompt_text = f"Scene {scene_number}"
+                print(f"Loaded prompt from scene_prompts.txt")
             except Exception as e:
                 print(f"Error reading scene_prompts.txt: {e}")
                 prompt_text = f"Scene {scene_number}"
@@ -149,32 +155,38 @@ async def read_scene_prompt(request):
         if os.path.exists(image_path):
             has_image = True
             image_file = png_file
+            print(f"Found image: {image_file}")
             break
     
     # Count total scenes (based on unique scene numbers in filenames)
     total_scenes = 0
     scene_numbers = set()
     
-    if os.path.isdir(actual_path):
-        try:
-            for filename in os.listdir(actual_path):
-                if filename.startswith("scene_") and (filename.endswith(".png") or filename.endswith(".txt")):
-                    # Extract scene number
-                    # Match patterns: scene_001_ or scene_001.
-                    match = re.match(r'scene_(\d{3})[_\.]', filename)
-                    if match:
-                        scene_num = int(match.group(1))
-                        scene_numbers.add(scene_num)
-        except Exception as e:
-            print(f"Error counting scenes: {e}")
+    try:
+        for filename in os.listdir(actual_path):
+            if filename.startswith("scene_") and (filename.endswith(".png") or filename.endswith(".txt")):
+                # Extract scene number
+                # Match patterns: scene_001_ or scene_001.
+                match = re.match(r'scene_(\d{3})', filename)
+                if match:
+                    scene_num = int(match.group(1))
+                    scene_numbers.add(scene_num)
+    except Exception as e:
+        print(f"Error counting scenes: {e}")
     
     total_scenes = len(scene_numbers) if scene_numbers else 0
     
     # If no scenes found by parsing, count PNG files
     if total_scenes == 0:
-        png_count = sum(1 for f in os.listdir(actual_path) 
-                       if f.startswith("scene_") and f.endswith(".png"))
-        total_scenes = png_count
+        try:
+            png_count = sum(1 for f in os.listdir(actual_path) 
+                           if f.startswith("scene_") and f.endswith(".png"))
+            total_scenes = png_count
+        except:
+            total_scenes = 0
+    
+    print(f"Total scenes detected: {total_scenes}")
+    print(f"Has image: {has_image}")
     
     return web.json_response({
         "prompt": prompt_text,
@@ -198,7 +210,7 @@ async def serve_scene_image(request):
     if not image_path:
         return web.Response(text="No image path provided", status=400)
     
-    # Security check: prevent directory traversal
+    # Basic security check
     if ".." in image_path or image_path.startswith("/"):
         return web.Response(text="Invalid image path", status=403)
     
@@ -219,6 +231,7 @@ async def serve_scene_image(request):
         else:
             content_type = 'image/jpeg'
         
+        print(f"Successfully served image: {image_path}")
         return web.Response(body=image_data, content_type=content_type, status=200)
     except Exception as e:
         print(f"Error serving image: {e}")

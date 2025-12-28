@@ -2,6 +2,7 @@ import re
 import os
 import torch
 import numpy as np
+import folder_paths
 from PIL import Image
 
 class ScenePromptSelector:
@@ -48,6 +49,37 @@ class ScenePromptSelector:
     CATEGORY = "video/analysis"
     OUTPUT_NODE = True  # Enable UI output
     
+    def resolve_keyframes_path(self, keyframes_path):
+        """
+        Resolve keyframes_path to full path.
+        If it's just a subfolder name (e.g., 'iscene_outputs'), 
+        construct the full path using ComfyUI output directory.
+        """
+        if not keyframes_path:
+            return None
+            
+        # If it's already an absolute path, use it as-is
+        if os.path.isabs(keyframes_path):
+            actual_path = keyframes_path
+        else:
+            # It's a relative path/subfolder name, construct full path
+            comfyui_output_dir = folder_paths.get_output_directory()
+            actual_path = os.path.join(comfyui_output_dir, keyframes_path)
+        
+        print(f"Resolved keyframes_path '{keyframes_path}' to '{actual_path}'")
+        
+        # Check if keyframes subdirectory exists
+        keyframes_subdir = os.path.join(actual_path, "keyframes")
+        if os.path.exists(keyframes_subdir):
+            print(f"Using keyframes subdirectory: {keyframes_subdir}")
+            return keyframes_subdir
+        elif os.path.exists(actual_path):
+            print(f"Using direct path: {actual_path}")
+            return actual_path
+        else:
+            print(f"Warning: Path does not exist: {actual_path}")
+            return None
+    
     def parse_prompts(self, prompts_text):
         """Parse the prompts text and extract individual scene prompts"""
         if not prompts_text or not prompts_text.strip():
@@ -75,18 +107,8 @@ class ScenePromptSelector:
     
     def get_keyframes_from_path(self, keyframes_path):
         """Get list of keyframe files from the directory"""
-        if not keyframes_path:
-            return []
-        
-        # Check if keyframes subdirectory exists
-        keyframes_subdir = os.path.join(keyframes_path, "keyframes")
-        if os.path.exists(keyframes_subdir):
-            actual_path = keyframes_subdir
-            print(f"Using keyframes subdirectory: {actual_path}")
-        elif os.path.exists(keyframes_path):
-            actual_path = keyframes_path
-            print(f"Using direct path: {actual_path}")
-        else:
+        actual_path = self.resolve_keyframes_path(keyframes_path)
+        if not actual_path:
             return []
         
         # Look for scene_XXX_YYmZZsWWWms.png files
@@ -103,12 +125,9 @@ class ScenePromptSelector:
     
     def load_prompt_from_file(self, keyframes_path, scene_idx):
         """Load prompt text from corresponding .txt file"""
-        # Check if keyframes subdirectory exists
-        keyframes_subdir = os.path.join(keyframes_path, "keyframes")
-        if os.path.exists(keyframes_subdir):
-            actual_path = keyframes_subdir
-        else:
-            actual_path = keyframes_path
+        actual_path = self.resolve_keyframes_path(keyframes_path)
+        if not actual_path:
+            return f"Scene {scene_idx + 1}"
         
         try:
             # Find the corresponding .txt file for the scene
@@ -153,12 +172,9 @@ class ScenePromptSelector:
     
     def get_scene_image_path(self, keyframes_path, scene_idx):
         """Get the image path for a specific scene index"""
-        # Check if keyframes subdirectory exists
-        keyframes_subdir = os.path.join(keyframes_path, "keyframes")
-        if os.path.exists(keyframes_subdir):
-            actual_path = keyframes_subdir
-        else:
-            actual_path = keyframes_path
+        actual_path = self.resolve_keyframes_path(keyframes_path)
+        if not actual_path:
+            return None
         
         try:
             # Look for pattern: scene_001_01m23s456ms.png

@@ -94,6 +94,10 @@ app.registerExtension({
                 this.imagePreview = imagePreview;
                 this.imageStatus = imageStatus;
                 
+                // Store the last valid path to remember it
+                this.lastValidPath = null;
+                this.isPathConnected = false;
+                
                 // Function to load scene prompt dynamically
                 const loadScenePrompt = async () => {
                     const keyframesPathWidget = this.widgets?.find(w => w.name === "keyframes_path");
@@ -104,8 +108,33 @@ app.registerExtension({
                         return;
                     }
                     
-                    const keyframesPath = keyframesPathWidget.value;
+                    // Get the path - use widget value if available, otherwise use last valid path
+                    let keyframesPath = keyframesPathWidget.value;
                     const sceneNumber = sceneNumberWidget.value;
+                    
+                    console.log("=== Loading scene ===");
+                    console.log("Scene:", sceneNumber);
+                    console.log("Path widget value:", keyframesPath);
+                    console.log("Last valid path:", this.lastValidPath);
+                    console.log("Is path connected:", this.isPathConnected);
+                    
+                    // If widget is empty but we have a last valid path, use it
+                    if ((!keyframesPath || keyframesPath.trim() === "") && this.lastValidPath) {
+                        console.log("Using last valid path:", this.lastValidPath);
+                        keyframesPath = this.lastValidPath;
+                    }
+                    
+                    // Check if input is connected but widget is empty
+                    if ((!keyframesPath || keyframesPath.trim() === "") && this.isPathConnected) {
+                        console.log("Path is connected but widget is empty - waiting for value");
+                        this.promptPreview.value = "Path connected - waiting for value...";
+                        if (this.imagePreview && this.imageStatus) {
+                            this.imagePreview.style.display = "none";
+                            this.imageStatus.style.display = "block";
+                            this.imageStatus.textContent = "Execute connected node first";
+                        }
+                        return;
+                    }
                     
                     if (!keyframesPath || keyframesPath.trim() === "") {
                         this.promptPreview.value = "Please provide keyframes path";
@@ -117,23 +146,8 @@ app.registerExtension({
                         return;
                     }
                     
-                    console.log("Loading scene:", sceneNumber, "from:", keyframesPath);
-                    
-                    // Check if prompts_text is connected
-                    const promptsTextInput = this.inputs?.find(i => i.name === "prompts_text");
-                    const isPromptsConnected = promptsTextInput && promptsTextInput.link != null;
-                    
-                    if (isPromptsConnected) {
-                        // If prompts_text is connected, we need to execute to get the data
-                        this.promptPreview.value = "Prompts connected - execute node to view";
-                        if (this.imagePreview && this.imageStatus) {
-                            this.imagePreview.style.display = "none";
-                            this.imageStatus.style.display = "block";
-                            this.imageStatus.textContent = "Execute node to view image";
-                        }
-                        console.log("Prompts text is connected, skipping dynamic load");
-                        return;
-                    }
+                    // Store this as last valid path
+                    this.lastValidPath = keyframesPath;
                     
                     // Show loading state
                     this.promptPreview.value = "Loading...";
@@ -174,40 +188,50 @@ app.registerExtension({
                             }
                             
                             // Load and display image
-                            if (data.has_image && this.imagePreview && this.imageStatus) {
-                                // Build image URL using the actual image file name
-                                let imagePath = `${keyframesPath}/keyframes/${data.image_file}`;
+                            if (data.has_image && data.image_file && this.imagePreview && this.imageStatus) {
+                                // Try multiple possible paths
+                                const possiblePaths = [
+                                    { path: `${keyframesPath}/keyframes/${data.image_file}`, desc: "keyframes subdirectory" },
+                                    { path: `${keyframesPath}/${data.image_file}`, desc: "direct path" },
+                                ];
                                 
-                                // Try with keyframes subdirectory first
-                                const imageUrl = `/scene_prompt/image?path=${encodeURIComponent(imagePath)}`;
-                                
-                                this.imagePreview.onload = () => {
-                                    this.imagePreview.style.display = "block";
-                                    this.imageStatus.style.display = "none";
-                                };
-                                
-                                this.imagePreview.onerror = () => {
-                                    // Try without keyframes subdirectory
-                                    const altImagePath = `${keyframesPath}/${data.image_file}`;
-                                    const altImageUrl = `/scene_prompt/image?path=${encodeURIComponent(altImagePath)}`;
-                                    this.imagePreview.src = altImageUrl;
-                                    
-                                    this.imagePreview.onerror = () => {
+                                const tryLoadImage = async (index) => {
+                                    if (index >= possiblePaths.length) {
                                         this.imagePreview.style.display = "none";
                                         this.imageStatus.style.display = "block";
                                         this.imageStatus.textContent = "Image not found";
+                                        return;
+                                    }
+                                    
+                                    const pathInfo = possiblePaths[index];
+                                    const imageUrl = `/scene_prompt/image?path=${encodeURIComponent(pathInfo.path)}`;
+                                    
+                                    console.log(`Trying to load image from: ${pathInfo.desc}`);
+                                    
+                                    this.imagePreview.onload = () => {
+                                        console.log(`✓ Image loaded successfully from: ${pathInfo.desc}`);
+                                        this.imagePreview.style.display = "block";
+                                        this.imageStatus.style.display = "none";
                                     };
+                                    
+                                    this.imagePreview.onerror = () => {
+                                        console.log(`✗ Failed to load from: ${pathInfo.desc}`);
+                                        tryLoadImage(index + 1);
+                                    };
+                                    
+                                    this.imagePreview.src = imageUrl;
                                 };
                                 
-                                this.imagePreview.src = imageUrl;
+                                tryLoadImage(0);
                             } else if (this.imagePreview && this.imageStatus) {
                                 this.imagePreview.style.display = "none";
                                 this.imageStatus.style.display = "block";
-                                this.imageStatus.textContent = "No image available";
+                                this.imageStatus.textContent = data.has_image ? "No image file specified" : "No image available";
                             }
                         } else {
                             const errorText = await response.text();
-                            this.promptPreview.value = `Error loading prompt: ${errorText}`;
+                            console.error("API error:", errorText);
+                            this.promptPreview.value = `Error loading prompt: ${response.status} ${response.statusText}`;
                             if (this.imagePreview && this.imageStatus) {
                                 this.imagePreview.style.display = "none";
                                 this.imageStatus.style.display = "block";
@@ -238,6 +262,13 @@ app.registerExtension({
                         console.log("Scene number changed to:", value);
                         loadScenePrompt();
                     };
+                    
+                    // Also listen for input events for real-time updates
+                    if (sceneNumberWidget.inputEl) {
+                        sceneNumberWidget.inputEl.addEventListener('input', () => {
+                            setTimeout(() => loadScenePrompt(), 100);
+                        });
+                    }
                 }
                 
                 // Hook into keyframes_path widget to trigger updates
@@ -253,56 +284,139 @@ app.registerExtension({
                         console.log("Keyframes path changed to:", value);
                         loadScenePrompt();
                     };
+                    
+                    // Also listen for input events
+                    if (keyframesPathWidget.inputEl) {
+                        keyframesPathWidget.inputEl.addEventListener('input', () => {
+                            setTimeout(() => loadScenePrompt(), 300);
+                        });
+                    }
+                    
+                    // Check if the widget gets updated from a connection
+                    const originalOnResize = keyframesPathWidget.onResize;
+                    keyframesPathWidget.onResize = function() {
+                        if (originalOnResize) {
+                            originalOnResize.apply(this, arguments);
+                        }
+                        // When widget resizes (which happens when value updates), try to load
+                        setTimeout(() => {
+                            if (keyframesPathWidget.value && keyframesPathWidget.value.trim() !== "") {
+                                console.log("Keyframes path widget updated to:", keyframesPathWidget.value);
+                                // Store this as the last valid path
+                                this.lastValidPath = keyframesPathWidget.value;
+                                loadScenePrompt();
+                            }
+                        }, 100);
+                    };
+                    
+                    // Add a MutationObserver to detect when the input value changes
+                    if (keyframesPathWidget.inputEl) {
+                        const observer = new MutationObserver((mutations) => {
+                            mutations.forEach((mutation) => {
+                                if (mutation.type === 'attributes' && mutation.attributeName === 'value') {
+                                    const newValue = keyframesPathWidget.inputEl.value;
+                                    console.log("MutationObserver detected value change:", newValue);
+                                    if (newValue && newValue.trim() !== "") {
+                                        this.lastValidPath = newValue;
+                                        setTimeout(() => loadScenePrompt(), 100);
+                                    }
+                                }
+                            });
+                        });
+                        
+                        observer.observe(keyframesPathWidget.inputEl, {
+                            attributes: true,
+                            attributeFilter: ['value']
+                        });
+                    }
                 }
                 
-                // Initial load if we have values
-                setTimeout(() => {
-                    if (keyframesPathWidget && keyframesPathWidget.value) {
-                        loadScenePrompt();
+                // Check if keyframes_path input is connected
+                const checkConnectionStatus = () => {
+                    const keyframesPathInput = this.inputs?.find(i => i.name === "keyframes_path");
+                    this.isPathConnected = keyframesPathInput && keyframesPathInput.link != null;
+                    console.log("Connection status check - isPathConnected:", this.isPathConnected);
+                    
+                    // If connected, show appropriate message
+                    if (this.isPathConnected && (!this.lastValidPath || this.lastValidPath.trim() === "")) {
+                        console.log("Path is connected but no value yet");
+                        if (this.promptPreview) {
+                            this.promptPreview.value = "Path connected - execute upstream node first";
+                        }
                     }
-                }, 100);
+                };
                 
-                return r;
-            };
-            
-            // Handle execution updates to display the selected prompt (for when prompts_text is connected)
-            const originalOnExecuted = nodeType.prototype.onExecuted;
-            nodeType.prototype.onExecuted = function(message) {
-                originalOnExecuted?.apply(this, arguments);
-                
-                console.log("ScenePromptSelector onExecuted, message:", message);
-                
-                // Update preview with the selected prompt from execution
-                if (message && this.promptPreview) {
-                    let promptText = null;
+                // Handle execution updates to display the selected prompt
+                const originalOnExecuted = nodeType.prototype.onExecuted;
+                nodeType.prototype.onExecuted = function(message) {
+                    originalOnExecuted?.apply(this, arguments);
                     
-                    // Try different ways to get the text
-                    if (message.text) {
-                        promptText = Array.isArray(message.text) ? message.text[0] : message.text;
-                    } else if (message.selected_prompt) {
-                        promptText = Array.isArray(message.selected_prompt) ? message.selected_prompt[0] : message.selected_prompt;
-                    }
+                    console.log("ScenePromptSelector onExecuted, message:", message);
                     
-                    console.log("Extracted promptText:", promptText);
+                    // Check connection status
+                    checkConnectionStatus();
                     
-                    if (promptText && typeof promptText === 'string') {
-                        this.promptPreview.value = promptText;
+                    // Update preview with the selected prompt from execution
+                    if (message && this.promptPreview) {
+                        let promptText = null;
                         
-                        // Sync to hidden widget
-                        const promptWidget = this.widgets?.find(w => w.name === "selected_prompt");
-                        if (promptWidget) {
-                            promptWidget.value = promptText;
+                        // Try different ways to get the text
+                        if (message.text) {
+                            promptText = Array.isArray(message.text) ? message.text[0] : message.text;
+                        } else if (message.selected_prompt) {
+                            promptText = Array.isArray(message.selected_prompt) ? message.selected_prompt[0] : message.selected_prompt;
+                        } else if (message.result && message.result[0]) {
+                            // Try to get from result tuple
+                            promptText = message.result[0];
                         }
                         
-                        // Auto-adjust rows based on content
-                        const lines = promptText.split('\n').length;
-                        this.promptPreview.inputEl.rows = Math.min(Math.max(lines, 5), 20);
+                        console.log("Extracted promptText:", promptText ? promptText.substring(0, 100) + "..." : "null");
                         
-                        console.log("Updated preview with prompt, lines:", lines);
-                    } else {
-                        console.warn("No valid prompt text found in message");
+                        if (promptText && typeof promptText === 'string') {
+                            this.promptPreview.value = promptText;
+                            
+                            // Sync to hidden widget
+                            const promptWidget = this.widgets?.find(w => w.name === "selected_prompt");
+                            if (promptWidget) {
+                                promptWidget.value = promptText;
+                            }
+                            
+                            // Auto-adjust rows based on content
+                            const lines = promptText.split('\n').length;
+                            this.promptPreview.inputEl.rows = Math.min(Math.max(lines, 5), 20);
+                            
+                            console.log("Updated preview with prompt, lines:", lines);
+                        } else {
+                            console.warn("No valid prompt text found in message");
+                        }
                     }
-                }
+                    
+                    // After execution, check if we have a path in the widget and try to load
+                    setTimeout(() => {
+                        const keyframesPathWidget = this.widgets?.find(w => w.name === "keyframes_path");
+                        if (keyframesPathWidget && keyframesPathWidget.value && keyframesPathWidget.value.trim() !== "") {
+                            console.log("After execution, storing and loading with path:", keyframesPathWidget.value);
+                            this.lastValidPath = keyframesPathWidget.value;
+                            loadScenePrompt();
+                        }
+                    }, 200);
+                };
+                
+                // Initial setup
+                setTimeout(() => {
+                    // Check connection status
+                    checkConnectionStatus();
+                    
+                    // Initial load if we have values
+                    const keyframesPathWidget = this.widgets?.find(w => w.name === "keyframes_path");
+                    if (keyframesPathWidget && keyframesPathWidget.value) {
+                        console.log("Initial load with path:", keyframesPathWidget.value);
+                        this.lastValidPath = keyframesPathWidget.value;
+                        loadScenePrompt();
+                    }
+                }, 300);
+                
+                return r;
             };
         }
     }

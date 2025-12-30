@@ -91,7 +91,7 @@ Scene detection threshold can be adjusted for different video types
 
 For long videos, process in time segments using start/end time parameters
 
-Detection metions, OpenCV is the fastest, Pyscene VideoManager has better detection, Pyscene OpenVideo scans for all scenes in a video before extraction so is slowest
+Detection methods, OpenCV is the fastest, Pyscene VideoManager has better detection, Pyscene OpenVideo scans for all scenes in a video before extraction so is slowest
 
 <b>Video Scene Generator</b>
 
@@ -109,6 +109,6 @@ Detection metions, OpenCV is the fastest, Pyscene VideoManager has better detect
 
 See workflow in workflow directory
 
-Prompt can be modified before execution in Scene Prompt Selector
+Prompt/description can be modified and auto saves if modified before execution
 
 Scene Prompt Modifier can modify the prompt without regenerating all scenes.

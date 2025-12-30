@@ -4,7 +4,7 @@ This ComfyUI extension provides a complete workflow for analyzing video content,
 
 <b>Updates:</b>
 
-30/12/2023 - Complete rewrite, added sanitation and brought both nodes into one, added a scene previwer node
+30/12/2023 - Complete rewrite, added sanitation and brought both nodes into one, added a scene previewer node
 
 27/12/2023 - Added Start and End Time selection
 

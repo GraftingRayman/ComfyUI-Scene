@@ -16,7 +16,7 @@ Start and End Frame Selection
 
 Add Moondream3 and other VLM's
 
-
+# Video Scene Analysis & Prompt Generation
 <b>Key Features:</b>
 
 Video Scene Detection - Automatically detects scene changes in videos - OpenCV, PyScene VideoManager and PyScene OpenVideo can be chosen as the algo
@@ -33,6 +33,18 @@ Real-time Preview - See keyframes and prompts without re-executing nodes
 
 Edit and save the caption before generation
 
+
+# Video Scene Viewer
+
+Custom path selection
+
+Visual Prompt Selection - Interactive UI to browse and select scenes with image previews
+
+Prompt Customization - Modify image style and lighting parameters
+
+Real-time Preview - See keyframes and prompts without re-executing nodes
+
+Edit and save the caption before generation
 
 
 <b>Installation:</b>

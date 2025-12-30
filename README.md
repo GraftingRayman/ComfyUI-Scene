@@ -14,6 +14,8 @@ This ComfyUI extension provides a complete workflow for analyzing video content,
 
 Start and End Frame Selection
 
+Add Moondream3 and other VLM's
+
 
 <b>Key Features:</b>
 

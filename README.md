@@ -47,7 +47,7 @@ Real-time Preview - See keyframes and prompts without re-executing nodes
 Edit and save the caption before generation
 
 
-<b>Installation:</b>
+# Installation:
 
 Clone/copy this folder to ComfyUI/custom_nodes/
 

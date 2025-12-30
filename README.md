@@ -57,10 +57,12 @@ Clone/copy this folder to ComfyUI/custom_nodes/
 
 Ensure all Python dependencies are installed:
 
-
 pip install torch torchvision transformers opencv-python Pillow scenedetect numpy aiohttp
 
-install requirements file
+Install requirements file:
+
+pip install -r /path/to/requirements.txt
+
 
 Restart ComfyUI
 

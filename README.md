@@ -60,6 +60,8 @@ Ensure all Python dependencies are installed:
 
 pip install torch torchvision transformers opencv-python Pillow scenedetect numpy aiohttp
 
+install requirements file
+
 Restart ComfyUI
 
 

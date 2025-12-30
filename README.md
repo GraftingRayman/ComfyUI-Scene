@@ -71,11 +71,18 @@ Scene detection threshold can be adjusted for different video types
 
 For long videos, process in time segments using start/end time parameters
 
+Video Scene Generator
 
 <img width="2572" height="1738" alt="image" src="https://github.com/user-attachments/assets/36cc9cb5-58fc-4136-bca4-153c26ff1b92" />
 
+Video Scene Generator
 
 <img width="2844" height="1783" alt="image" src="https://github.com/user-attachments/assets/1ef60f62-13be-46ba-a188-7dcda26f56e5" />
+
+Video Scene Viewer
+
+<img width="3204" height="1866" alt="image" src="https://github.com/user-attachments/assets/02de9356-74c7-484c-9217-f2c5d5fc5ea3" />
+
 
 
 See workflow in workflow directory

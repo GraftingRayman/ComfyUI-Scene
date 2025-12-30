@@ -46,6 +46,10 @@ Real-time Preview - See keyframes and prompts without re-executing nodes
 
 Edit and save the caption before generation
 
+# Video Scene Analysis Prompt Modifier
+
+Modify the prompt with style and lighting before generation
+
 
 # Installation:
 

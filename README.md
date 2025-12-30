@@ -91,6 +91,8 @@ Scene detection threshold can be adjusted for different video types
 
 For long videos, process in time segments using start/end time parameters
 
+Detection metions, OpenCV is the fastest, Pyscene VideoManager has better detection, Pyscene OpenVideo scans for all scenes in a video before extraction so is slowest
+
 <b>Video Scene Generator</b>
 
 <img width="2572" height="1738" alt="image" src="https://github.com/user-attachments/assets/36cc9cb5-58fc-4136-bca4-153c26ff1b92" />

@@ -44,6 +44,9 @@ class VideoSceneViewer:
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         else:
             self.device = None
+        # Track last processed values to detect changes
+        self.last_directory = None
+        self.last_index = None
     
     def find_image_txt_pairs(self, scene_directory):
         """Find all image files that have an exact matching .txt file"""
@@ -124,17 +127,17 @@ class VideoSceneViewer:
             # Return blank image tensor
             return torch.zeros((1, 512, 512, 3), dtype=torch.float32)
     
-    def get_description_from_txt(self, image_info):
-        """Get description from the exact matching .txt file"""
+    def get_description_from_txt(self, txt_path):
+        """Get description from the txt file path"""
         try:
-            txt_path = os.path.join(os.path.dirname(image_info["path"]), f"{image_info['basename']}.txt")
-            
             # Read the .txt file
             if os.path.exists(txt_path):
                 with open(txt_path, 'r', encoding='utf-8') as f:
                     description = f.read().strip()
+                print(f"Loaded description from {txt_path}, length: {len(description)}")
                 return description
             else:
+                print(f"Description file not found: {txt_path}")
                 return ""
                 
         except Exception as e:
@@ -147,6 +150,7 @@ class VideoSceneViewer:
         print(f"\n=== Video Scene Viewer ===")
         print(f"Input directory: {scene_directory}")
         print(f"Selected index: {selected_scene_index}")
+        print(f"Scene description widget value: '{scene_description[:100] if scene_description else 'empty'}...'")
         
         # Validate directory
         if not scene_directory or not os.path.exists(scene_directory):
@@ -176,31 +180,40 @@ class VideoSceneViewer:
         # Get selected scene info
         selected_scene_info = scene_files_info[internal_index]
         scene_path = selected_scene_info["path"]
+        txt_path = os.path.join(os.path.dirname(scene_path), f"{selected_scene_info['basename']}.txt")
         
         print(f"Total scenes with descriptions: {total_scenes}")
         print(f"Selected scene: {selected_scene_index}")
         print(f"Image file: {selected_scene_info['filename']}")
+        print(f"Description file: {txt_path}")
+        
+        # Determine if this is a new scene selection or if user is saving
+        directory_changed = scene_directory != self.last_directory
+        index_changed = selected_scene_index != self.last_index
+        
+        # Update tracking
+        self.last_directory = scene_directory
+        self.last_index = selected_scene_index
         
         # Get description
         final_description = ""
         
-        # If scene_description is provided from UI (edited version), use it
-        if scene_description and scene_description.strip():
+        # If scene_description is provided from UI AND it's not a new scene selection, save it
+        if scene_description and scene_description.strip() and not (directory_changed or index_changed):
+            # This is an edit being saved
             final_description = scene_description
-            print("Using UI-provided description")
+            print("User edited description, saving to file...")
             
-            # Save the edited description to .txt file
-            txt_path = os.path.join(os.path.dirname(scene_path), f"{selected_scene_info['basename']}.txt")
             try:
                 with open(txt_path, 'w', encoding='utf-8') as f:
                     f.write(scene_description)
-                print(f"Saved edited description to: {txt_path}")
+                print(f"✓ Saved edited description to: {txt_path}")
             except Exception as e:
                 print(f"Error saving description: {e}")
         else:
-            # Load description from matching .txt file
-            final_description = self.get_description_from_txt(selected_scene_info)
-            print(f"Loaded description from .txt file, length: {len(final_description)}")
+            # Load fresh description from file (new scene or first load)
+            final_description = self.get_description_from_txt(txt_path)
+            print(f"Loaded fresh description from file")
         
         # Load image as tensor
         print(f"Loading image: {selected_scene_info['filename']}")
@@ -214,15 +227,15 @@ class VideoSceneViewer:
         # Calculate txt file paths
         txt_paths = []
         for info in scene_files_info:
-            txt_path = os.path.join(os.path.dirname(info["path"]), f"{info['basename']}.txt")
-            txt_paths.append(txt_path)
+            txt_file_path = os.path.join(os.path.dirname(info["path"]), f"{info['basename']}.txt")
+            txt_paths.append(txt_file_path)
         
         print(f"\n✓ Scene loaded successfully")
         print(f"  - Total scenes: {total_scenes}")
         print(f"  - Selected scene: {selected_scene_index}")
         print(f"  - Description length: {len(final_description)}")
         print(f"  - Image shape: {image_tensor.shape}")
-        print(f"  - Using new API routes for file access")
+        print(f"  - Using secured API routes for file access")
         
         # Return UI data for frontend
         return {

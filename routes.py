@@ -4,6 +4,93 @@ import server
 from aiohttp import web
 import folder_paths
 
+# ==============================================================================
+# SECURITY CONFIGURATION
+# ==============================================================================
+# Define allowed base directories for file access
+# Users should configure this in a separate config file for their setup
+def get_allowed_directories():
+    """
+    Get list of allowed directories for file access.
+    This should be loaded from a configuration file in production.
+    """
+    allowed_dirs = []
+    
+    # Always allow ComfyUI output directory
+    output_dir = folder_paths.get_output_directory()
+    if output_dir:
+        allowed_dirs.append(os.path.abspath(output_dir))
+    
+    # Allow ComfyUI input directory
+    input_dir = folder_paths.get_input_directory()
+    if input_dir:
+        allowed_dirs.append(os.path.abspath(input_dir))
+    
+    # Check for custom config file
+    config_path = os.path.join(os.path.dirname(__file__), "allowed_paths.json")
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, 'r') as f:
+                config = json.load(f)
+                custom_paths = config.get("allowed_directories", [])
+                for path in custom_paths:
+                    abs_path = os.path.abspath(os.path.expanduser(path))
+                    if os.path.exists(abs_path) and os.path.isdir(abs_path):
+                        allowed_dirs.append(abs_path)
+                        print(f"Added allowed directory: {abs_path}")
+                    else:
+                        print(f"Warning: Directory not found or not accessible: {path}")
+        except Exception as e:
+            print(f"Warning: Could not load allowed_paths.json: {e}")
+    else:
+        print(f"Info: No allowed_paths.json found at {config_path}")
+    
+    print(f"Total allowed directories: {len(allowed_dirs)}")
+    for d in allowed_dirs:
+        print(f"  - {d}")
+    
+    return allowed_dirs
+
+def is_path_allowed(filepath, allowed_directories):
+    """
+    Check if a filepath is within any of the allowed directories.
+    Prevents path traversal attacks.
+    """
+    try:
+        # Normalize and resolve the path
+        abs_filepath = os.path.abspath(os.path.normpath(os.path.expanduser(filepath)))
+        
+        # Check if file exists
+        if not os.path.exists(abs_filepath):
+            return False, f"File not found: {abs_filepath}"
+        
+        # Check if it's actually a file
+        if not os.path.isfile(abs_filepath):
+            return False, "Not a file"
+        
+        # Check if path is within any allowed directory
+        for allowed_dir in allowed_directories:
+            try:
+                # Use os.path.commonpath to check if file is under allowed directory
+                common = os.path.commonpath([abs_filepath, allowed_dir])
+                if common == allowed_dir:
+                    print(f"Path allowed: {abs_filepath} (under {allowed_dir})")
+                    return True, None
+            except ValueError:
+                # Different drives on Windows
+                continue
+        
+        print(f"Path denied: {abs_filepath}")
+        print(f"  Not in any of: {allowed_directories}")
+        return False, "Path not in allowed directories"
+        
+    except Exception as e:
+        return False, f"Path validation error: {str(e)}"
+
+# ==============================================================================
+# LEGACY ENDPOINTS (ComfyUI output directory only)
+# ==============================================================================
+
 @server.PromptServer.instance.routes.get("/video_scene/read_image")
 async def read_scene_image(request):
     """
@@ -128,28 +215,32 @@ async def save_scene_description(request):
     except Exception as e:
         return web.Response(text=f"Error saving description: {str(e)}", status=500)
 
+# ==============================================================================
+# SECURED VIEWER ENDPOINTS (Whitelist-based access)
+# ==============================================================================
+
 @server.PromptServer.instance.routes.get("/video_scene/viewer/read_image")
 async def viewer_read_image(request):
     """
-    API endpoint to read scene image files from ANY directory
-    (for VideoSceneViewer node)
+    SECURED: API endpoint to read scene image files from whitelisted directories
     """
     filepath = request.query.get("filepath", "")
     
     if not filepath:
         return web.Response(text="No filepath provided", status=400)
     
+    # Get allowed directories
+    allowed_dirs = get_allowed_directories()
+    
+    if not allowed_dirs:
+        return web.Response(text="No allowed directories configured", status=500)
+    
+    # Validate path
+    is_allowed, error_msg = is_path_allowed(filepath, allowed_dirs)
+    if not is_allowed:
+        return web.Response(text=f"Access denied: {error_msg}", status=403)
+    
     try:
-        # Normalize the path to prevent directory traversal attacks
-        filepath = os.path.normpath(filepath)
-        
-        # Security: Check if file exists and is readable
-        if not os.path.exists(filepath):
-            return web.Response(text="File not found", status=404)
-        
-        if not os.path.isfile(filepath):
-            return web.Response(text="Not a file", status=400)
-        
         # Check if it's an image file by extension
         allowed_extensions = {'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp'}
         file_ext = os.path.splitext(filepath)[1].lower()
@@ -157,16 +248,16 @@ async def viewer_read_image(request):
         if file_ext not in allowed_extensions:
             return web.Response(text="Not a supported image file", status=400)
         
-        # Check file size (optional safety measure)
+        # Check file size (50MB limit)
         file_size = os.path.getsize(filepath)
-        if file_size > 50 * 1024 * 1024:  # 50MB limit
+        if file_size > 50 * 1024 * 1024:
             return web.Response(text="File too large", status=400)
         
         # Read the file
         with open(filepath, 'rb') as f:
             image_data = f.read()
         
-        # Determine content type based on file extension
+        # Determine content type
         content_types = {
             '.png': 'image/png',
             '.jpg': 'image/jpeg',
@@ -190,32 +281,32 @@ async def viewer_read_image(request):
 @server.PromptServer.instance.routes.get("/video_scene/viewer/read_description")
 async def viewer_read_description(request):
     """
-    API endpoint to read scene description files from ANY directory
-    (for VideoSceneViewer node)
+    SECURED: API endpoint to read text files from whitelisted directories
     """
     filepath = request.query.get("filepath", "")
     
     if not filepath:
         return web.Response(text="No filepath provided", status=400)
     
+    # Get allowed directories
+    allowed_dirs = get_allowed_directories()
+    
+    if not allowed_dirs:
+        return web.Response(text="No allowed directories configured", status=500)
+    
+    # Validate path
+    is_allowed, error_msg = is_path_allowed(filepath, allowed_dirs)
+    if not is_allowed:
+        return web.Response(text=f"Access denied: {error_msg}", status=403)
+    
     try:
-        # Normalize the path
-        filepath = os.path.normpath(filepath)
-        
-        # Security checks
-        if not os.path.exists(filepath):
-            return web.Response(text="File not found", status=404)
-        
-        if not os.path.isfile(filepath):
-            return web.Response(text="Not a file", status=400)
-        
         # Check if it's a text file
         if not filepath.lower().endswith('.txt'):
             return web.Response(text="Not a text file", status=400)
         
-        # Check file size (text files should be small)
+        # Check file size (10MB limit for text files)
         file_size = os.path.getsize(filepath)
-        if file_size > 10 * 1024 * 1024:  # 10MB limit for text files
+        if file_size > 10 * 1024 * 1024:
             return web.Response(text="File too large", status=400)
         
         # Read the file
@@ -236,8 +327,7 @@ async def viewer_read_description(request):
 @server.PromptServer.instance.routes.post("/video_scene/viewer/save_description")
 async def viewer_save_description(request):
     """
-    API endpoint to save edited scene descriptions to ANY directory
-    (for VideoSceneViewer node)
+    SECURED: API endpoint to save text files to whitelisted directories
     """
     try:
         data = await request.json()
@@ -250,39 +340,59 @@ async def viewer_save_description(request):
     if not filepath:
         return web.Response(text="No filepath provided", status=400)
     
+    # Get allowed directories
+    allowed_dirs = get_allowed_directories()
+    
+    if not allowed_dirs:
+        return web.Response(text="No allowed directories configured", status=500)
+    
     try:
         # Normalize the path
-        filepath = os.path.normpath(filepath)
+        abs_filepath = os.path.abspath(os.path.normpath(os.path.expanduser(filepath)))
         
-        # Validate filepath
+        # Validate file extension
         if not filepath.endswith('.txt'):
             return web.Response(text="Invalid file extension", status=400)
         
-        # Security: Check parent directory exists and is writable
-        parent_dir = os.path.dirname(filepath)
+        # Check parent directory is in allowed list
+        parent_dir = os.path.dirname(abs_filepath)
+        parent_allowed = False
+        
+        for allowed_dir in allowed_dirs:
+            try:
+                common = os.path.commonpath([parent_dir, allowed_dir])
+                if common == allowed_dir:
+                    parent_allowed = True
+                    break
+            except ValueError:
+                continue
+        
+        if not parent_allowed:
+            return web.Response(text="Access denied: Parent directory not in allowed paths", status=403)
+        
+        # Check parent directory exists and is writable
         if not os.path.exists(parent_dir):
             return web.Response(text="Parent directory does not exist", status=400)
         
         if not os.path.isdir(parent_dir):
             return web.Response(text="Parent is not a directory", status=400)
         
-        # Check if we can write to the directory
         if not os.access(parent_dir, os.W_OK):
             return web.Response(text="Permission denied - cannot write to directory", status=403)
         
-        # Optional: Limit content size
-        if len(content.encode('utf-8')) > 5 * 1024 * 1024:  # 5MB limit
+        # Limit content size (5MB)
+        if len(content.encode('utf-8')) > 5 * 1024 * 1024:
             return web.Response(text="Content too large", status=400)
         
         # Save the file
-        with open(filepath, 'w', encoding='utf-8') as f:
+        with open(abs_filepath, 'w', encoding='utf-8') as f:
             f.write(content)
         
-        print(f"Saved description to: {filepath}")
+        print(f"Saved description to: {abs_filepath}")
         
         return web.json_response({
             "message": "Description saved successfully", 
-            "filepath": filepath
+            "filepath": abs_filepath
         }, status=200)
         
     except PermissionError:
@@ -292,48 +402,78 @@ async def viewer_save_description(request):
         return web.Response(text=f"Error saving description: {str(e)}", status=500)
 
 
-# Optional: Add a route to check if a directory exists (for better UI feedback)
 @server.PromptServer.instance.routes.get("/video_scene/viewer/check_directory")
 async def viewer_check_directory(request):
     """
-    API endpoint to check if a directory exists and is readable
-    (for VideoSceneViewer node - optional)
+    API endpoint to check if a directory exists and is in allowed paths
     """
     directory = request.query.get("directory", "")
     
     if not directory:
         return web.Response(text="No directory provided", status=400)
     
+    # Get allowed directories
+    allowed_dirs = get_allowed_directories()
+    
+    if not allowed_dirs:
+        return web.json_response({
+            "exists": False,
+            "allowed": False,
+            "readable": False,
+            "message": "No allowed directories configured"
+        }, status=200)
+    
     try:
         # Normalize the path
-        directory = os.path.normpath(directory)
+        abs_directory = os.path.abspath(os.path.normpath(os.path.expanduser(directory)))
         
-        if not os.path.exists(directory):
+        if not os.path.exists(abs_directory):
             return web.json_response({
                 "exists": False,
+                "allowed": False,
                 "readable": False,
                 "message": "Directory does not exist"
             }, status=200)
         
-        if not os.path.isdir(directory):
+        if not os.path.isdir(abs_directory):
             return web.json_response({
                 "exists": False,
+                "allowed": False,
                 "readable": False,
                 "message": "Path is not a directory"
             }, status=200)
         
+        # Check if directory is in allowed paths
+        is_allowed = False
+        for allowed_dir in allowed_dirs:
+            try:
+                common = os.path.commonpath([abs_directory, allowed_dir])
+                if common == allowed_dir:
+                    is_allowed = True
+                    break
+            except ValueError:
+                continue
+        
         # Check if directory is readable
-        readable = os.access(directory, os.R_OK)
+        readable = os.access(abs_directory, os.R_OK)
+        
+        message = "Directory exists"
+        if not is_allowed:
+            message += " but is not in allowed paths"
+        elif not readable:
+            message += " but is not readable"
         
         return web.json_response({
             "exists": True,
+            "allowed": is_allowed,
             "readable": readable,
-            "message": "Directory exists" + ("" if readable else " but is not readable")
+            "message": message
         }, status=200)
         
     except Exception as e:
         return web.json_response({
             "exists": False,
+            "allowed": False,
             "readable": False,
             "message": f"Error checking directory: {str(e)}"
         }, status=200)

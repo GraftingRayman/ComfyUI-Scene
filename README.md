@@ -49,12 +49,19 @@ Edit and save the caption before generation
 The VIdeo Scene Viewer requires any non ComfyUI folder to be added to allowed_paths.json file
 
 Example:
+
 {
+
   "allowed_directories": [
+  
     "h:/prompts",
+    
     "i:/images/prompts"
+    
   ]
+  
 }
+
 
 If you have multiple folders inside a root folder, you just need to add the root folder
 

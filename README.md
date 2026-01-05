@@ -46,7 +46,7 @@ Real-time Preview - See keyframes and prompts without re-executing nodes
 
 Edit and save the caption before generation
 
-The VIdeo Scene Viewer requires any non ComfyUI folder to be added to allowed_paths.json file
+The VIdeo Scene Viewer requires any non ComfyUI folder to be added to allowed_paths.json file, the paths are case sensitive, if you enable h:\ and try to load from H:\ then it will be denied.
 
 Example:
 

@@ -6,9 +6,9 @@ This ComfyUI extension provides a complete workflow for analyzing video content,
 
 07/01/2023 - Added options to select sanitized paths for VideoSceneViewer - use allowed_paths.json
 
-           - Added option to extract individual Scene Videos separately
+             Added option to extract individual Scene Videos separately
            
-           - Added option to extract end frame also
+             Added option to extract end frame also
            
 30/12/2023 - Complete rewrite, added sanitation and brought both nodes into one, added a scene previewer node
 

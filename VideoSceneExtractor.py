@@ -44,7 +44,7 @@ class VideoSceneGenerationNode:
                     "default": 27.0,
                 }),
                 "max_description_length": ("INT", {
-                    "default": 512,
+                    "default": 1024,
                 }),
                 "save_scenes": ("BOOLEAN", {
                     "default": True,
@@ -414,7 +414,7 @@ class VideoSceneGenerationNode:
         os.makedirs(scene_output_dir, exist_ok=True)
         
         # Create subdirectories for better organization
-        images_dir = os.path.join(scene_output_dir, "images")
+        images_dir = os.path.join(scene_output_dir)
         videos_dir = os.path.join(scene_output_dir, "videos")
         os.makedirs(images_dir, exist_ok=True)
         

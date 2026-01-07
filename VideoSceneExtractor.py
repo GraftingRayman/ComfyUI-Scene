@@ -1,3 +1,4 @@
+# VideoSceneExtractor.py - Complete implementation with start/end frame extraction
 import os
 import torch
 import numpy as np
@@ -6,8 +7,10 @@ import cv2
 import folder_paths
 import json
 import hashlib
-from typing import List
+from typing import List, Tuple
 import warnings
+import subprocess
+import shutil
 warnings.filterwarnings("ignore")
 
 # Import comfy.utils for progress bar
@@ -49,12 +52,56 @@ class VideoSceneGenerationNode:
                 "generate_descriptions": ("BOOLEAN", {
                     "default": True,
                 }),
+                "extract_end_frames": ("BOOLEAN", {  # NEW: Extract end frames of scenes
+                    "default": False,
+                    "label_on": "Extract End Frames",
+                    "label_off": "Only Start Frames"
+                }),
+                "extract_scene_videos": ("BOOLEAN", {
+                    "default": False,
+                    "label_on": "Extract Scene Videos",
+                    "label_off": "Only Images"
+                }),
+                "scene_video_format": ([
+                    "mp4",
+                    "mkv",
+                    "avi",
+                    "mov",
+                    "webm"
+                ], {
+                    "default": "mp4"
+                }),
+                "video_codec": ([
+                    "libx264",
+                    "libx265",
+                    "copy",
+                    "h264_nvenc",
+                    "hevc_nvenc",
+                    "vp9"
+                ], {
+                    "default": "libx264"
+                }),
+                "audio_codec": ([
+                    "aac",
+                    "mp3",
+                    "copy",
+                    "pcm_s16le",
+                    "opus"
+                ], {
+                    "default": "aac"
+                }),
+                "video_quality": ("INT", {
+                    "default": 23,
+                    "min": 0,
+                    "max": 51,
+                    "step": 1,
+                    "display": "slider"
+                }),
                 "use_cache": ("BOOLEAN", {
                     "default": True,
                     "label_on": "Use Cache",
                     "label_off": "Force Regenerate"
                 }),
-                # New: Scene detection method dropdown
                 "scene_detection_method": ([
                     "opencv",
                     "pyscene_openvideo", 
@@ -62,7 +109,6 @@ class VideoSceneGenerationNode:
                 ], {
                     "default": "opencv"
                 }),
-                # UI control inputs
                 "selected_scene_index": ("INT", {
                     "default": 1,
                     "min": 1,
@@ -75,8 +121,9 @@ class VideoSceneGenerationNode:
             }
         }
 
-    RETURN_TYPES = ("STRING", "LIST", "STRING", "STRING")
-    RETURN_NAMES = ("output_path", "scene_paths", "metadata_json", "selected_description")
+    RETURN_TYPES = ("STRING", "LIST", "STRING", "STRING", "IMAGE", "LIST", "LIST")
+    RETURN_NAMES = ("output_path", "scene_paths", "metadata_json", "selected_description", 
+                    "scene_image", "scene_video_paths", "scene_end_paths")
     FUNCTION = "extract_scenes"
     CATEGORY = "Video Processing"
     OUTPUT_NODE = True
@@ -84,6 +131,8 @@ class VideoSceneGenerationNode:
     def __init__(self):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.progress_bar = None
+        self.last_video_file = None
+        self.last_index = None
         
     def create_progress_bar(self, total, desc=""):
         """Create a progress bar"""
@@ -93,6 +142,18 @@ class VideoSceneGenerationNode:
         else:
             self.progress_bar = None
             print(f"{desc}: Starting...")
+
+    def load_image_as_tensor(self, image_path):
+        """Load image and convert to ComfyUI compatible tensor"""
+        try:
+            image = Image.open(image_path).convert("RGB")
+            image_array = np.array(image).astype(np.float32) / 255.0
+            image_tensor = torch.from_numpy(image_array).unsqueeze(0)
+            return image_tensor
+            
+        except Exception as e:
+            print(f"Error loading image {image_path}: {e}")
+            return torch.zeros((1, 512, 512, 3), dtype=torch.float32)
         
     def update_progress(self, current, total, desc=""):
         """Update progress bar"""
@@ -106,9 +167,15 @@ class VideoSceneGenerationNode:
         
     def get_cache_key(self, video_file, start_time, end_time, scene_threshold, 
                      max_description_length, save_scenes, generate_descriptions, 
-                     output_dir, scene_detection_method):
+                     output_dir, scene_detection_method, extract_end_frames,
+                     extract_scene_videos, scene_video_format, video_codec, 
+                     audio_codec, video_quality):
         """Generate a unique cache key based on input parameters"""
-        params_str = f"{video_file}_{start_time}_{end_time}_{scene_threshold}_{max_description_length}_{save_scenes}_{generate_descriptions}_{output_dir}_{scene_detection_method}"
+        params_str = (f"{video_file}_{start_time}_{end_time}_{scene_threshold}_"
+                     f"{max_description_length}_{save_scenes}_{generate_descriptions}_"
+                     f"{output_dir}_{scene_detection_method}_{extract_end_frames}_"
+                     f"{extract_scene_videos}_{scene_video_format}_{video_codec}_"
+                     f"{audio_codec}_{video_quality}")
         return hashlib.md5(params_str.encode()).hexdigest()[:16]
     
     def load_cached_results(self, cache_key, scene_output_dir):
@@ -126,12 +193,18 @@ class VideoSceneGenerationNode:
             print(f"Found cache file: {cache_file}")
             
             scene_paths = cache_data.get("scene_paths", [])
+            scene_end_paths = cache_data.get("scene_end_paths", [])
+            scene_video_paths = cache_data.get("scene_video_paths", [])
             
             if not scene_paths:
                 print("Cache has no scene paths")
                 return None
                 
             print(f"Cache has {len(scene_paths)} scenes")
+            if scene_end_paths:
+                print(f"Cache has {len(scene_end_paths)} end frames")
+            if scene_video_paths:
+                print(f"Cache has {len(scene_video_paths)} scene videos")
             
             # Check if the first scene file exists
             first_scene = scene_paths[0] if scene_paths else None
@@ -154,7 +227,10 @@ class VideoSceneGenerationNode:
         try:
             cache_data = {
                 "scene_paths": results.get("scene_paths", []),
+                "scene_end_paths": results.get("scene_end_paths", []),
+                "scene_video_paths": results.get("scene_video_paths", []),
                 "scene_timestamps": results.get("scene_timestamps", []),
+                "scene_end_timestamps": results.get("scene_end_timestamps", []),
                 "metadata": results.get("metadata", {}),
                 "cache_key": cache_key,
                 "video_file": results.get("video_file", ""),
@@ -170,8 +246,87 @@ class VideoSceneGenerationNode:
         except Exception as e:
             print(f"Error saving cache: {e}")
     
+    def check_ffmpeg(self):
+        """Check if ffmpeg is available"""
+        try:
+            result = subprocess.run(['ffmpeg', '-version'], 
+                                  capture_output=True, text=True)
+            if result.returncode == 0:
+                print("✓ FFmpeg is available")
+                return True
+            else:
+                print("✗ FFmpeg not found or not working")
+                return False
+        except FileNotFoundError:
+            print("✗ FFmpeg not found. Please install ffmpeg:")
+            print("  Ubuntu/Debian: sudo apt install ffmpeg")
+            print("  macOS: brew install ffmpeg")
+            print("  Windows: Download from https://ffmpeg.org/")
+            return False
+    
+    def extract_scene_video(self, video_file, start_time, end_time, output_path, 
+                           video_codec, audio_codec, video_quality, format):
+        """
+        Extract a scene video using ffmpeg
+        Args:
+            start_time: Start time in seconds
+            end_time: End time in seconds
+            output_path: Output video path
+        """
+        try:
+            # Calculate duration
+            duration = end_time - start_time
+            
+            # Build ffmpeg command
+            cmd = [
+                'ffmpeg',
+                '-y',  # Overwrite output file
+                '-ss', str(start_time),  # Start time
+                '-i', video_file,  # Input file
+                '-t', str(duration),  # Duration
+                '-c:v', video_codec,  # Video codec
+                '-c:a', audio_codec,  # Audio codec
+            ]
+            
+            # Add quality parameters for certain codecs
+            if video_codec in ['libx264', 'h264_nvenc']:
+                cmd.extend(['-crf', str(video_quality)])
+            elif video_codec in ['libx265', 'hevc_nvenc']:
+                cmd.extend(['-crf', str(video_quality)])
+            elif video_codec == 'vp9':
+                cmd.extend(['-b:v', '0', '-crf', str(video_quality)])
+            elif video_codec == 'copy':
+                # No quality parameter for copy codec
+                pass
+            
+            # Add format-specific options
+            if format == 'mp4':
+                cmd.extend(['-movflags', '+faststart'])
+            elif format == 'webm':
+                cmd.extend(['-deadline', 'good', '-cpu-used', '0'])
+            
+            # Add output file
+            cmd.append(output_path)
+            
+            print(f"Extracting scene video: {start_time:.2f}s to {end_time:.2f}s")
+            print(f"FFmpeg command: {' '.join(cmd)}")
+            
+            # Run ffmpeg
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                print(f"✓ Scene video saved: {output_path}")
+                return True
+            else:
+                print(f"✗ FFmpeg error: {result.stderr}")
+                return False
+                
+        except Exception as e:
+            print(f"Error extracting scene video: {e}")
+            return False
+    
     def load_moondream_model(self):
-        """Load Moondream2 model exactly as in your working code"""
+        """Load Moondream2 model"""
         try:
             print(f"\nLoading Moondream2 model: vikhyatk/moondream2\n")
             
@@ -197,7 +352,7 @@ class VideoSceneGenerationNode:
             return None, None
 
     def generate_caption(self, image_path, tokenizer, model):
-        """Generate caption using Moondream2 exactly as in your working code"""
+        """Generate caption using Moondream2"""
         try:
             image = Image.open(image_path).convert("RGB")
             enc_image = model.encode_image(image)
@@ -208,7 +363,7 @@ class VideoSceneGenerationNode:
             
             caption = answer.strip()
             
-            # Clean up as in your working code
+            # Clean up
             patterns_to_remove = [
                 question,
                 f"{question}:",
@@ -233,7 +388,7 @@ class VideoSceneGenerationNode:
             return f"Caption generation failed: {str(e)}"
 
     def save_description_txt(self, image_path, description):
-        """Save description as .txt file with same name as image"""
+        """Save description as .txt file"""
         txt_path = os.path.splitext(image_path)[0] + '.txt'
         with open(txt_path, 'w', encoding='utf-8') as f:
             f.write(description + '\n')
@@ -241,7 +396,9 @@ class VideoSceneGenerationNode:
 
     def extract_scenes(self, video_file, output_dir, start_time, end_time, scene_threshold, 
                       max_description_length, save_scenes, generate_descriptions,
-                      use_cache, scene_detection_method, selected_scene_index, scene_description):
+                      extract_end_frames, extract_scene_videos, scene_video_format, 
+                      video_codec, audio_codec, video_quality, use_cache, 
+                      scene_detection_method, selected_scene_index, scene_description):
         
         # Get ComfyUI output directory
         comfy_output_dir = folder_paths.get_output_directory()
@@ -256,6 +413,18 @@ class VideoSceneGenerationNode:
         scene_output_dir = os.path.join(comfy_output_dir, output_dir)
         os.makedirs(scene_output_dir, exist_ok=True)
         
+        # Create subdirectories for better organization
+        images_dir = os.path.join(scene_output_dir, "images")
+        videos_dir = os.path.join(scene_output_dir, "videos")
+        os.makedirs(images_dir, exist_ok=True)
+        
+        if extract_scene_videos:
+            os.makedirs(videos_dir, exist_ok=True)
+            # Check ffmpeg availability
+            if not self.check_ffmpeg():
+                print("Warning: FFmpeg not available, scene video extraction disabled")
+                extract_scene_videos = False
+        
         # Validate video file
         if not os.path.exists(video_file):
             print(f"Error: Video file not found: {video_file}")
@@ -264,11 +433,15 @@ class VideoSceneGenerationNode:
         # Check cache first
         cache_key = self.get_cache_key(video_file, start_time, end_time, scene_threshold,
                                       max_description_length, save_scenes, generate_descriptions, 
-                                      output_dir, scene_detection_method)
+                                      output_dir, scene_detection_method, extract_end_frames,
+                                      extract_scene_videos, scene_video_format, video_codec, 
+                                      audio_codec, video_quality)
         
         print(f"Cache key: {cache_key}")
         print(f"Use cache: {use_cache}")
         print(f"Scene detection method: {scene_detection_method}")
+        print(f"Extract end frames: {extract_end_frames}")
+        print(f"Extract scene videos: {extract_scene_videos}")
         
         cached_results = None
         if use_cache:
@@ -277,10 +450,17 @@ class VideoSceneGenerationNode:
         if cached_results:
             # Use cached results
             scene_paths = cached_results["scene_paths"]
+            scene_end_paths = cached_results.get("scene_end_paths", [])
+            scene_video_paths = cached_results.get("scene_video_paths", [])
             scene_timestamps = cached_results.get("scene_timestamps", [])
+            scene_end_timestamps = cached_results.get("scene_end_timestamps", [])
             metadata = cached_results.get("metadata", {})
             
             print(f"✓ Loaded {len(scene_paths)} scenes from cache")
+            if scene_end_paths:
+                print(f"✓ Loaded {len(scene_end_paths)} end frames from cache")
+            if scene_video_paths:
+                print(f"✓ Loaded {len(scene_video_paths)} scene videos from cache")
             
             # Update metadata path if needed
             metadata["full_output_path"] = scene_output_dir
@@ -312,56 +492,133 @@ class VideoSceneGenerationNode:
             
             print(f"Found {len(scene_timestamps)} scenes")
             
+            # Calculate scene end timestamps (each scene ends at the start of the next scene, minus 1 frame)
+            scene_end_timestamps = []
+            for i in range(len(scene_timestamps)):
+                if i < len(scene_timestamps) - 1:
+                    # Get the frame before the next scene starts
+                    # We'll get video FPS to calculate frame duration
+                    cap = cv2.VideoCapture(video_file)
+                    fps = cap.get(cv2.CAP_PROP_FPS)
+                    cap.release()
+                    
+                    if fps > 0:
+                        frame_duration = 1.0 / fps
+                        # Set end timestamp to 1 frame before next scene starts
+                        scene_end_timestamps.append(scene_timestamps[i + 1] - frame_duration)
+                    else:
+                        # Default to 30fps if unknown
+                        scene_end_timestamps.append(scene_timestamps[i + 1] - 1.0/30.0)
+                else:
+                    # Last scene ends at video end or specified end time
+                    scene_end_timestamps.append(end_seconds)
+            
             # Extract and save scene frames with progress bar
             scene_paths = []
+            scene_end_paths = [] if extract_end_frames else []
+            
             if save_scenes:
                 print(f"Extracting {len(scene_timestamps)} scene frames...")
                 
                 # Create progress bar for scene extraction
                 total_scenes = len(scene_timestamps)
-                self.create_progress_bar(total_scenes, "Extracting scenes")
+                self.create_progress_bar(total_scenes, "Extracting scene frames")
                 
-                for i, timestamp in enumerate(scene_timestamps):
+                for i, (timestamp, end_timestamp) in enumerate(zip(scene_timestamps, scene_end_timestamps)):
+                    # Extract start frame
                     scene_filename = f"scene_{i:04d}_at_{timestamp:.2f}s.png"
-                    scene_path = os.path.join(scene_output_dir, scene_filename)
+                    scene_path = os.path.join(images_dir, scene_filename)
                     
                     # Update progress
-                    self.update_progress(i + 1, total_scenes, f"Extracting scene {i+1}/{total_scenes}")
+                    self.update_progress(i + 1, total_scenes, f"Extracting frame {i+1}/{total_scenes}")
                     
                     self.extract_frame(video_file, timestamp, scene_path)
                     scene_paths.append(scene_path)
+                    
+                    # Extract end frame if enabled
+                    if extract_end_frames:
+                        # Ensure we don't extract the same frame if scene is very short
+                        if end_timestamp > timestamp:
+                            end_filename = f"scene_{i:04d}_at_{timestamp:.2f}s_end.png"
+                            end_path = os.path.join(images_dir, end_filename)
+                            
+                            # Extract frame at end_timestamp (or slightly before if at scene boundary)
+                            self.extract_frame(video_file, end_timestamp, end_path)
+                            scene_end_paths.append(end_path)
+                            print(f"  Saved end frame: {os.path.basename(end_path)}")
+                        else:
+                            # If scene is too short, just duplicate start frame
+                            end_filename = f"scene_{i:04d}_at_{timestamp:.2f}s_end.png"
+                            end_path = os.path.join(images_dir, end_filename)
+                            shutil.copy2(scene_path, end_path)
+                            scene_end_paths.append(end_path)
+                            print(f"  Scene too short, duplicated start frame as end frame")
                 
             else:
                 # Just create paths without extracting
                 for i, timestamp in enumerate(scene_timestamps):
                     scene_filename = f"scene_{i:04d}_at_{timestamp:.2f}s.png"
-                    scene_path = os.path.join(scene_output_dir, scene_filename)
+                    scene_path = os.path.join(images_dir, scene_filename)
                     scene_paths.append(scene_path)
+                    
+                    if extract_end_frames:
+                        end_filename = f"scene_{i:04d}_at_{timestamp:.2f}s_end.png"
+                        end_path = os.path.join(images_dir, end_filename)
+                        scene_end_paths.append(end_path)
             
-            # Generate descriptions AFTER all scenes are extracted
-            if generate_descriptions and save_scenes and scene_paths:
-                print("\nLoading Moondream2 model for caption generation...")
+            # Extract scene videos if requested
+            scene_video_paths = []
+            if extract_scene_videos and len(scene_timestamps) > 0:
+                print(f"\nExtracting {len(scene_timestamps)} scene videos...")
+                
+                # Create progress bar for video extraction
+                self.create_progress_bar(len(scene_timestamps), "Extracting scene videos")
+                
+                for i, (start_time, end_time) in enumerate(zip(scene_timestamps, scene_end_timestamps)):
+                    video_filename = f"scene_{i:04d}_{start_time:.2f}s_to_{end_time:.2f}s.{scene_video_format}"
+                    video_path = os.path.join(videos_dir, video_filename)
+                    
+                    # Update progress
+                    self.update_progress(i + 1, len(scene_timestamps), f"Extracting video {i+1}/{len(scene_timestamps)}")
+                    
+                    if self.extract_scene_video(video_file, start_time, end_time, video_path,
+                                              video_codec, audio_codec, video_quality, scene_video_format):
+                        scene_video_paths.append(video_path)
+                    else:
+                        scene_video_paths.append("")
+            
+            # Generate descriptions for ALL frames (start and end) if enabled
+            all_images_to_describe = []
+            if generate_descriptions:
+                # Add start frames
+                all_images_to_describe.extend(scene_paths)
+                # Add end frames if enabled
+                if extract_end_frames:
+                    all_images_to_describe.extend(scene_end_paths)
+            
+            if all_images_to_describe:
+                print(f"\nLoading Moondream2 model for caption generation...")
                 tokenizer, model = self.load_moondream_model()
                 if tokenizer and model:
-                    total_scenes = len(scene_paths)
-                    print(f"Generating captions for {total_scenes} scenes...")
+                    total_images = len(all_images_to_describe)
+                    print(f"Generating captions for {total_images} images...")
                     
                     # Create progress bar for caption generation
-                    self.create_progress_bar(total_scenes, "Generating captions")
+                    self.create_progress_bar(total_images, "Generating captions")
                     
-                    for i, scene_path in enumerate(scene_paths):
-                        if os.path.exists(scene_path):
+                    for i, image_path in enumerate(all_images_to_describe):
+                        if os.path.exists(image_path):
                             # Update progress
-                            self.update_progress(i + 1, total_scenes, f"Generating caption {i+1}/{total_scenes}")
+                            self.update_progress(i + 1, total_images, f"Generating caption {i+1}/{total_images}")
                             
-                            caption = self.generate_caption(scene_path, tokenizer, model)
+                            caption = self.generate_caption(image_path, tokenizer, model)
                             # Truncate if needed
                             if len(caption) > max_description_length:
                                 caption = caption[:max_description_length].rsplit(' ', 1)[0] + "..."
                             
                             # Save as .txt file with same name
-                            self.save_description_txt(scene_path, caption)
-                            print(f"Saved description to: {os.path.basename(scene_path).replace('.png', '.txt')}")
+                            self.save_description_txt(image_path, caption)
+                            print(f"Saved description to: {os.path.basename(image_path).replace('.png', '.txt')}")
                     
                     # Clear model from memory
                     del model
@@ -374,32 +631,73 @@ class VideoSceneGenerationNode:
                 "video_file": video_file,
                 "output_directory_name": output_dir,
                 "full_output_path": scene_output_dir,
+                "images_directory": images_dir,
+                "videos_directory": videos_dir if extract_scene_videos else None,
                 "start_time": start_time,
                 "end_time": end_time,
                 "scene_threshold": scene_threshold,
                 "max_description_length": max_description_length,
                 "generate_descriptions": generate_descriptions,
+                "extract_end_frames": extract_end_frames,
+                "extract_scene_videos": extract_scene_videos,
+                "scene_video_format": scene_video_format if extract_scene_videos else None,
+                "video_codec": video_codec if extract_scene_videos else None,
+                "audio_codec": audio_codec if extract_scene_videos else None,
+                "video_quality": video_quality if extract_scene_videos else None,
                 "scene_detection_method": scene_detection_method,
                 "total_scenes": len(scene_timestamps),
                 "scenes": []
             }
             
-            for i, (timestamp, img_path) in enumerate(zip(scene_timestamps, scene_paths)):
-                txt_path = img_path.replace('.png', '.txt')
-                description = ""
-                if os.path.exists(txt_path):
-                    with open(txt_path, 'r', encoding='utf-8') as f:
-                        description = f.read().strip()
+            for i, (timestamp, end_timestamp, img_path) in enumerate(zip(scene_timestamps, scene_end_timestamps, scene_paths)):
+                # Get start frame info
+                start_txt_path = img_path.replace('.png', '.txt')
+                start_description = ""
+                if os.path.exists(start_txt_path):
+                    with open(start_txt_path, 'r', encoding='utf-8') as f:
+                        start_description = f.read().strip()
                 
-                metadata["scenes"].append({
+                # Get end frame info if enabled
+                end_img_path = scene_end_paths[i] if i < len(scene_end_paths) else ""
+                end_txt_path = ""
+                end_description = ""
+                if end_img_path and os.path.exists(end_img_path):
+                    end_txt_path = end_img_path.replace('.png', '.txt')
+                    if os.path.exists(end_txt_path):
+                        with open(end_txt_path, 'r', encoding='utf-8') as f:
+                            end_description = f.read().strip()
+                
+                # Get video info if enabled
+                video_path = scene_video_paths[i] if i < len(scene_video_paths) else ""
+                
+                scene_data = {
                     "index": i,
-                    "timestamp": timestamp,
-                    "image_file": os.path.basename(img_path),
-                    "description_file": os.path.basename(txt_path),
-                    "description": description,
-                    "image_path": img_path,
-                    "description_path": txt_path
-                })
+                    "start_timestamp": timestamp,
+                    "end_timestamp": end_timestamp,
+                    "duration": end_timestamp - timestamp,
+                    "start_frame": {
+                        "image_file": os.path.basename(img_path),
+                        "description_file": os.path.basename(start_txt_path),
+                        "description": start_description,
+                        "image_path": img_path,
+                        "description_path": start_txt_path,
+                    }
+                }
+                
+                if extract_end_frames and end_img_path:
+                    scene_data["end_frame"] = {
+                        "image_file": os.path.basename(end_img_path),
+                        "description_file": os.path.basename(end_txt_path) if end_txt_path else "",
+                        "description": end_description,
+                        "image_path": end_img_path,
+                        "description_path": end_txt_path if end_txt_path else "",
+                    }
+                
+                if video_path and os.path.exists(video_path):
+                    scene_data["video_file"] = os.path.basename(video_path)
+                    scene_data["video_path"] = video_path
+                
+                metadata["scenes"].append(scene_data)
             
             # Save metadata
             metadata_path = os.path.join(scene_output_dir, "metadata.json")
@@ -410,7 +708,10 @@ class VideoSceneGenerationNode:
             if use_cache:
                 self.save_cached_results(cache_key, scene_output_dir, {
                     "scene_paths": scene_paths,
+                    "scene_end_paths": scene_end_paths,
+                    "scene_video_paths": scene_video_paths,
                     "scene_timestamps": scene_timestamps,
+                    "scene_end_timestamps": scene_end_timestamps,
                     "metadata": metadata,
                     "video_file": video_file,
                     "output_dir": output_dir,
@@ -418,6 +719,33 @@ class VideoSceneGenerationNode:
         
         # Adjust selected_scene_index from 1-based to 0-based for internal use
         internal_index = selected_scene_index - 1
+
+        selected_image_path = ""
+        if 0 <= internal_index < len(scene_paths):
+            selected_image_path = scene_paths[internal_index]
+            print(f"  - Selected image path: {selected_image_path}")
+        else:
+            if scene_paths:  # Fallback to first scene
+                selected_image_path = scene_paths[0]
+                internal_index = 0
+        
+        # Load the image as tensor
+        image_tensor = None
+        if selected_image_path and os.path.exists(selected_image_path):
+            print(f"  - Loading image as tensor...")
+            image_tensor = self.load_image_as_tensor(selected_image_path)
+            print(f"  - Image tensor shape: {image_tensor.shape}")
+        else:
+            print(f"  - Warning: Selected image not found, using blank tensor")
+            image_tensor = torch.zeros((1, 512, 512, 3), dtype=torch.float32)
+        
+        # Determine if this is a new scene selection or edit save
+        video_changed = video_file != self.last_video_file
+        index_changed = selected_scene_index != self.last_index
+        
+        # Update tracking
+        self.last_video_file = video_file
+        self.last_index = selected_scene_index
         
         # Get selected description from .txt file or UI input
         selected_description = ""
@@ -447,33 +775,46 @@ class VideoSceneGenerationNode:
         
         print(f"\n✓ Complete! Output saved to: {scene_output_dir}")
         print(f"  - Custom directory name: {output_dir}")
-        print(f"  - Images: {len(scene_paths)}")
+        print(f"  - Start frames: {len(scene_paths)}")
+        if extract_end_frames:
+            print(f"  - End frames: {len(scene_end_paths)}")
+        if extract_scene_videos:
+            print(f"  - Scene videos: {len([v for v in scene_video_paths if v])}")
         print(f"  - Selected scene: {selected_scene_index} (internal: {internal_index})")
         print(f"  - Selected description length: {len(selected_description)}")
         print(f"  - Cache used: {cached_results is not None}")
         print(f"  - Scene detection method: {scene_detection_method}")
+        print(f"  - Extract end frames: {extract_end_frames}")
+        print(f"  - Extract scene videos: {extract_scene_videos}")
         
         # Return with UI data - ALL VALUES MUST BE LISTS
         return {
             "ui": {
                 "text": [selected_description],  # For display
                 "scene_paths": [scene_paths],  # List containing list
+                "scene_end_paths": [scene_end_paths],  # New: List of end frame paths
+                "scene_video_paths": [scene_video_paths],  # List of video paths
                 "total_scenes": [len(scene_paths)],  # List containing int
                 "selected_index": [selected_scene_index],  # List containing int
             },
-            "result": (scene_output_dir, scene_paths, json.dumps(metadata, indent=2), selected_description)
+            "result": (scene_output_dir, scene_paths, json.dumps(metadata, indent=2), 
+                      selected_description, image_tensor, scene_video_paths, scene_end_paths)
         }
     
     def return_empty(self, scene_output_dir):
         """Return empty results when video file not found"""
+        blank_tensor = torch.zeros((1, 512, 512, 3), dtype=torch.float32)
+        
         return {
             "ui": {
                 "text": [""],  # Empty string in list
                 "scene_paths": [[]],  # Empty list in list
+                "scene_end_paths": [[]],  # Empty list for end frames
+                "scene_video_paths": [[]],  # Empty list for videos
                 "total_scenes": [0],  # Zero in list
                 "selected_index": [1],  # 1 in list
             },
-            "result": (scene_output_dir, [], "{}", "")
+            "result": (scene_output_dir, [], "{}", "", blank_tensor, [], [])
         }
 
     def sanitize_filename(self, filename):
@@ -553,7 +894,6 @@ class VideoSceneGenerationNode:
     def detect_scenes_pyscene_openvideo(self, video_path, start_seconds, end_seconds, threshold):
         """Scene detection using PySceneDetect open_video method"""
         try:
-            # Import scenedetect here to avoid dependency issues
             from scenedetect import open_video, SceneManager
             from scenedetect.detectors import ContentDetector
             from scenedetect.frame_timecode import FrameTimecode
@@ -613,7 +953,6 @@ class VideoSceneGenerationNode:
     def detect_scenes_pyscene_videomanager(self, video_path, start_seconds, end_seconds, threshold):
         """Scene detection using PySceneDetect VideoManager method"""
         try:
-            # Import scenedetect here to avoid dependency issues
             from scenedetect import VideoManager, SceneManager
             from scenedetect.detectors import ContentDetector
             from scenedetect.frame_timecode import FrameTimecode

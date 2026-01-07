@@ -10,7 +10,6 @@ This ComfyUI extension provides a complete workflow for analyzing video content,
            
            - Added option to extract end frame also
            
-
 30/12/2023 - Complete rewrite, added sanitation and brought both nodes into one, added a scene previewer node
 
 27/12/2023 - Added Start and End Time selection

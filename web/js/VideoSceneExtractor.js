@@ -302,6 +302,17 @@ app.registerExtension({
                     
                     this.currentSceneIndex = Math.max(0, Math.min(selectedIndex, this.scenePaths.length - 1));
                     console.log(`Current scene index: ${this.currentSceneIndex}`);
+                    // Check if we have an image tensor in the output
+                    // The image tensor will be at index 4 in the result array
+                    if (message.result && message.result.length > 4) {
+                        const imageTensor = message.result[4];
+                        console.log("Image tensor received:", imageTensor ? "Yes" : "No");
+                        console.log("Image tensor type:", typeof imageTensor);
+            
+                        // Note: The image tensor is for ComfyUI outputs, not for our JavaScript preview
+                        // We continue using our existing updatePreview method for the UI
+                    }
+
                     
                     if (this.scenePaths.length > 0) {
                         console.log("Calling updatePreview...");

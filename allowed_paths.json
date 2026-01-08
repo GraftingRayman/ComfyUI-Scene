@@ -1,6 +1,6 @@
 {
   "allowed_directories": [
     "h:/prompts",
-    "i:/images/prompts"
+    "H:/ComfyUI/custom_nodes/ComfyUI_GraftingRayman/Nodes/prompts"
   ]
 }

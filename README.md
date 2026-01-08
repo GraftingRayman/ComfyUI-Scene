@@ -4,6 +4,8 @@ This ComfyUI extension provides a complete workflow for analyzing video content,
 
 <b>Updates:</b>
 
+08/01/2023 - Added a new node Video Scene Caption - It captions the video scene to guide your video generation. Now you can use video captions instead of scene captions.
+
 07/01/2023 - Added options to select sanitized paths for VideoSceneViewer - use allowed_paths.json. Added option to extract individual Scene Videos separately. Added option to extract end frame also
            
 30/12/2023 - Complete rewrite, added sanitation and brought both nodes into one, added a scene previewer node
@@ -71,6 +73,27 @@ If you have multiple folders inside a root folder, you just need to add the root
 
 Modify the prompt with style and lighting before generation
 
+# Video Scene Caption
+
+This node takes the videos from the Video Scene Extractor and captions the entire scene, you can edit and save changes.
+
+<b>Example captions:</b>
+
+<b>moondream output (scene):</b>
+
+In the center of the image, a woman with long dark hair stands, wearing a black puffy jacket over a dark-colored, possibly black, top. She has a slight smile on her face. To her left, another woman is partially visible, wearing a pink and white plaid shirt. To her right, an unidentified woman is also present. The background features a construction or industrial setting, with a woman in a yellow hard hat standing behind a white fence, observing the scene.
+
+
+<b>phi-3-mini-4k output (video):</b>
+
+In the center of the image, a woman with long black hair is standing with two other people. She is dressed warmly in a black puffer jacket and a dark-colored shirt underneath. She appears to be engaged in a conversation or discussion with the two other people. One of them is wearing a red and white plaid shirt, and the other is wearing a beige coat. In the background, a construction worker wearing a yellow hard hat is visible, seemingly observing the interaction between the woman and the two onlookers. The setting appears to be outdoors, possibly near a construction site, given the presence of construction equipment and materials. The overall mood of the image is casual and informal, capturing a moment of conversation and interaction between three individuals. The scene remains consistent throughout.
+
+
+<b>quen2.5-7b output (video):</b>
+
+The scene takes place at a bustling construction site filled with heavy machinery and workers in hard hats. At the center of this dynamic environment stands a woman with long black hair and a black puffer jacket, who appears to be the focus of attention as she engages in a conversation with two other individuals. Over the course of the brief clip, we see the woman move slightly within the frame but remains the central figure. Her warm attire contrasts with the cold winter weather implied by the setting. As the camera pans around her, it becomes clear that she is actively participating in a discussion, perhaps about work or project details. The overall atmosphere exudes professionalism and purposefulness, with the background activity suggesting a busy worksite where important business is being conducted.
+
+
 
 # Installation:
 
@@ -125,6 +148,10 @@ Detection methods, OpenCV is the fastest, Pyscene VideoManager has better detect
 <b>Video Scene Viewer</b>
 
 <img width="3204" height="1866" alt="image" src="https://github.com/user-attachments/assets/02de9356-74c7-484c-9217-f2c5d5fc5ea3" />
+
+<b>Video Scene Caption</b>
+
+<img width="2970" height="1776" alt="image" src="https://github.com/user-attachments/assets/66019596-ec15-4e29-9d43-f09d978e2de1" />
 
 
 

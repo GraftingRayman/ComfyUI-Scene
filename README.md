@@ -16,7 +16,7 @@ This ComfyUI extension provides a complete workflow for analyzing video content,
 
 <b>To Do:</b>
 
-Start and End Frame Selection
+Add video and audio outputs for scenes to Video Scene Caption
 
 Add Moondream3 and other VLM's
 

@@ -110,16 +110,6 @@ pip install -r /path/to/requirements.txt
 
 Restart ComfyUI
 
-
-<b>Model Requirements:</b>
-
-Moondream2 (~1.5GB) will be automatically downloaded on first use
-
-<b>Model location: </b>
-
-~/.cache/huggingface/hub/models--vikhyatk--moondream2/
-
-
 <b>Supported Video Formats:</b>
 
 .mp4, .avi, .mov, .mkv, .webm, .flv, .wmv, .m4v, .mpg, .mpeg
@@ -127,17 +117,17 @@ Moondream2 (~1.5GB) will be automatically downloaded on first use
 
 <b>Notes:</b>
 
-First run will download Moondream2 model (~1-5 minutes depending on internet)
+First run will download llm and vlm models as selected (~1-5 minutes depending on internet)
 
-Large videos may require significant disk space for keyframe extraction
+Large videos may require significant disk space for keyframe/video scene extraction
 
 Scene detection threshold can be adjusted for different video types
 
 For long videos, process in time segments using start/end time parameters
 
-Detection methods, OpenCV is the fastest, Pyscene VideoManager has better detection, Pyscene OpenVideo scans for all scenes in a video before extraction so is slowest
+Detection methods, OpenCV is the fastest, Pyscene VideoManager (recommended) has better detection, Pyscene OpenVideo scans for all scenes in a video before extraction so is slowest
 
-<b>Video Scene Generator</b>
+<b>Video Scene Extractor</b>
 
 <img width="2572" height="1738" alt="image" src="https://github.com/user-attachments/assets/36cc9cb5-58fc-4136-bca4-153c26ff1b92" />
 

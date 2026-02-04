@@ -3,16 +3,17 @@
 This ComfyUI extension provides a complete workflow for analyzing video content, generating scene descriptions, and creating AI image prompts. It consists of three interconnected nodes that work together to transform video content into usable AI art prompts with visual previews.
 
 <b>Updates:</b>
+04/02/2026 - Added code to comply with ComfyUI file path traversal
 
-08/01/2023 - Added a new node Video Scene Caption - It captions the video scene to guide your video generation. Now you can use video captions instead of scene captions.
+08/01/2026 - Added a new node Video Scene Caption - It captions the video scene to guide your video generation. Now you can use video captions instead of scene captions.
 
-07/01/2023 - Added options to select sanitized paths for VideoSceneViewer - use allowed_paths.json. Added option to extract individual Scene Videos separately. Added option to extract end frame also
+07/01/2026 - Added options to select sanitized paths for VideoSceneViewer - use allowed_paths.json. Added option to extract individual Scene Videos separately. Added option to extract end frame also
            
-30/12/2023 - Complete rewrite, added sanitation and brought both nodes into one, added a scene previewer node
+30/12/2025 - Complete rewrite, added sanitation and brought both nodes into one, added a scene previewer node
 
-27/12/2023 - Added Start and End Time selection
+27/12/2025 - Added Start and End Time selection
 
-27/12/2023 - Initial Release
+27/12/2025 - Initial Release
 
 <b>To Do:</b>
 

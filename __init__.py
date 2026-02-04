@@ -30,6 +30,13 @@ except Exception as e:
     VideoSceneIncrementer = None
 
 try:
+    from .VideoSceneTranscript import VideoSceneTranscript
+    print("\033[92m✓ Loaded: VideoSceneTranscript\033[0m")
+except Exception as e:
+    print(f"\033[91m✗ Failed to load VideoSceneTranscript: {e}\033[0m")
+    VideoSceneTranscript = None
+
+try:
     from .VideoSceneCaption import VideoSceneCaption
     print("\033[92m✓ Loaded: VideoSceneCaption\033[0m")
 except Exception as e:
@@ -48,6 +55,8 @@ if VideoSceneIncrementer:
     NODE_CLASS_MAPPINGS["VideoSceneIncrementer"] = VideoSceneIncrementer
 if VideoSceneCaption:
     NODE_CLASS_MAPPINGS["VideoSceneCaption"] = VideoSceneCaption
+if VideoSceneTranscript:
+    NODE_CLASS_MAPPINGS["VideoSceneTranscript"] = VideoSceneTranscript
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "VideoSceneGenerationNode": "Video Scene Analysis & Prompt Generation",
@@ -55,6 +64,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "VideoSceneViewer": "Video Scene Viewer",
     "VideoSceneIncrementer": "Video Scene Incrementer",
     "VideoSceneCaption": "Video Scene Caption",
+    "VideoSceneTranscript": "Video Scene Transcript",
 }
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"]

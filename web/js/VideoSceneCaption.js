@@ -479,7 +479,7 @@ app.registerExtension({
                 console.log(`Captions directory: ${this.captionsDir}`);
                 
                 // Construct the filename
-                const filename = `scene_${sceneIndex.toString().padStart(4, '0')}_caption.txt`;
+                const filename = `scene_${(sceneIndex + 1).toString().padStart(4, '0')}_caption.txt`;
                 
                 // Construct full filepath
                 let captionFilepath;
@@ -498,7 +498,7 @@ app.registerExtension({
                     console.log(`  Filepath: ${captionFilepath}`);
                     console.log(`  Content length: ${newDescription.length} chars`);
                     
-                    const response = await api.fetchApi("/video_scene/viewer/save_description", {
+                    const response = await api.fetchApi("/video_scene/caption/save_description", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({

@@ -6,84 +6,6 @@ import folder_paths
 import mimetypes
 import urllib.parse
 
-def get_allowed_directories():
-    """Get list of directories that can be accessed"""
-    allowed_dirs = []
-    
-    # 1. ComfyUI output directory
-    output_dir = folder_paths.get_output_directory()
-    if output_dir:
-        allowed_dirs.append(os.path.abspath(output_dir))
-    
-    # 2. ComfyUI input directory
-    input_dir = folder_paths.get_input_directory()
-    if input_dir:
-        allowed_dirs.append(os.path.abspath(input_dir))
-    
-    # 3. Custom paths from config
-    config_path = os.path.join(os.path.dirname(__file__), "allowed_paths.json")
-    if os.path.exists(config_path):
-        try:
-            with open(config_path, 'r') as f:
-                config = json.load(f)
-                custom_paths = config.get("allowed_directories", [])
-                for path in custom_paths:
-                    abs_path = os.path.abspath(os.path.expanduser(path))
-                    if os.path.exists(abs_path) and os.path.isdir(abs_path):
-                        allowed_dirs.append(abs_path)
-        except Exception:
-            pass
-    
-    return allowed_dirs
-
-def is_path_allowed(filepath, allowed_directories):
-    """Check if a file path is within allowed directories"""
-    try:
-        # Decode URL-encoded path
-        decoded_path = urllib.parse.unquote(filepath)
-        
-        # Handle both forward and backward slashes
-        abs_filepath = os.path.abspath(os.path.normpath(os.path.expanduser(decoded_path)))
-        
-        if not os.path.exists(abs_filepath):
-            # Try to find the file with different path variations
-            # First, check if it's a relative path from output directory
-            output_dir = folder_paths.get_output_directory()
-            if output_dir:
-                abs_output_dir = os.path.abspath(output_dir)
-                
-                # Try path relative to output directory
-                rel_path = decoded_path.lstrip('/\\')
-                test_path = os.path.join(abs_output_dir, rel_path)
-                if os.path.exists(test_path):
-                    abs_filepath = os.path.abspath(test_path)
-                else:
-                    # Try the original decoded path
-                    if not os.path.exists(decoded_path):
-                        return False, "File not found"
-                    abs_filepath = os.path.abspath(decoded_path)
-        
-        if not os.path.isfile(abs_filepath):
-            return False, "Not a file"
-        
-        # Check if file is in any allowed directory
-        for allowed_dir in allowed_directories:
-            try:
-                # Normalize both paths for comparison
-                normalized_allowed = os.path.normpath(allowed_dir).lower()
-                normalized_file = os.path.normpath(abs_filepath).lower()
-                
-                # Check if file is within allowed directory
-                if normalized_file.startswith(normalized_allowed + os.sep) or normalized_file == normalized_allowed:
-                    return True, None
-            except ValueError:
-                continue
-        
-        return False, "Path not in allowed directories"
-        
-    except Exception as e:
-        return False, f"Path validation error: {str(e)}"
-
 def get_scene_captions_dir(base_dir=None):
     """Get the scene captions directory path"""
     output_dir = folder_paths.get_output_directory()
@@ -309,101 +231,10 @@ async def caption_read_description(request):
     except Exception as e:
         return web.Response(text=f"Error reading caption: {str(e)}", status=500)
 
-# ============ VIEWER ENDPOINTS (shared by both) ============
-@server.PromptServer.instance.routes.get("/video_scene/viewer/read_image")
-async def viewer_read_image(request):
-    filepath = request.query.get("filepath", "")
-    
-    if not filepath:
-        return web.Response(text="No filepath provided", status=400)
-    
-    allowed_dirs = get_allowed_directories()
-    
-    if not allowed_dirs:
-        return web.Response(text="No allowed directories configured", status=500)
-    
-    is_allowed, error_msg = is_path_allowed(filepath, allowed_dirs)
-    if not is_allowed:
-        return web.Response(text=f"Access denied: {error_msg}", status=403)
-    
-    try:
-        allowed_extensions = {'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp'}
-        file_ext = os.path.splitext(filepath)[1].lower()
-        
-        if file_ext not in allowed_extensions:
-            return web.Response(text="Not a supported image file", status=400)
-        
-        # Get the actual absolute path
-        decoded_path = urllib.parse.unquote(filepath)
-        abs_filepath = os.path.abspath(os.path.normpath(os.path.expanduser(decoded_path)))
-        
-        file_size = os.path.getsize(abs_filepath)
-        if file_size > 50 * 1024 * 1024:
-            return web.Response(text="File too large", status=400)
-        
-        with open(abs_filepath, 'rb') as f:
-            image_data = f.read()
-        
-        content_types = {
-            '.png': 'image/png',
-            '.jpg': 'image/jpeg',
-            '.jpeg': 'image/jpeg',
-            '.gif': 'image/gif',
-            '.bmp': 'image/bmp',
-            '.webp': 'image/webp',
-        }
-        
-        content_type = content_types.get(file_ext, 'application/octet-stream')
-        
-        return web.Response(body=image_data, content_type=content_type)
-        
-    except PermissionError:
-        return web.Response(text="Permission denied", status=403)
-    except Exception as e:
-        return web.Response(text=f"Error reading image: {str(e)}", status=500)
-
-@server.PromptServer.instance.routes.get("/video_scene/viewer/read_description")
-async def viewer_read_description(request):
-    filepath = request.query.get("filepath", "")
-    
-    if not filepath:
-        return web.Response(text="No filepath provided", status=400)
-    
-    allowed_dirs = get_allowed_directories()
-    
-    if not allowed_dirs:
-        return web.Response(text="No allowed directories configured", status=500)
-    
-    is_allowed, error_msg = is_path_allowed(filepath, allowed_dirs)
-    if not is_allowed:
-        return web.Response(text=f"Access denied: {error_msg}", status=403)
-    
-    try:
-        decoded_path = urllib.parse.unquote(filepath)
-        abs_filepath = os.path.abspath(os.path.normpath(os.path.expanduser(decoded_path)))
-        
-        if not abs_filepath.lower().endswith('.txt'):
-            return web.Response(text="Not a text file", status=400)
-        
-        file_size = os.path.getsize(abs_filepath)
-        if file_size > 10 * 1024 * 1024:
-            return web.Response(text="File too large", status=400)
-        
-        with open(abs_filepath, 'r', encoding='utf-8') as f:
-            content = f.read()
-        
-        return web.Response(text=content, status=200)
-        
-    except PermissionError:
-        return web.Response(text="Permission denied", status=403)
-    except UnicodeDecodeError:
-        return web.Response(text="Invalid text encoding", status=400)
-    except Exception as e:
-        return web.Response(text=f"Error reading description: {str(e)}", status=500)
-
-@server.PromptServer.instance.routes.post("/video_scene/viewer/save_description")
-async def viewer_save_description(request):
-    """Generic save description endpoint for any text file"""
+# ============ ADDED MISSING ROUTE ============
+@server.PromptServer.instance.routes.post("/video_scene/caption/save_description")
+async def caption_save_direct(request):
+    """Save caption description directly - endpoint for VideoSceneCaption.js"""
     try:
         data = await request.json()
     except:
@@ -415,127 +246,36 @@ async def viewer_save_description(request):
     if not filepath:
         return web.Response(text="No filepath provided", status=400)
     
-    allowed_dirs = get_allowed_directories()
-    
-    if not allowed_dirs:
-        return web.Response(text="No allowed directories configured", status=500)
+    output_dir = folder_paths.get_output_directory()
+    if not output_dir:
+        return web.Response(text="No output directory configured", status=500)
     
     try:
-        decoded_path = urllib.parse.unquote(filepath)
-        abs_filepath = os.path.abspath(os.path.normpath(os.path.expanduser(decoded_path)))
+        # Get absolute paths
+        abs_filepath = os.path.abspath(filepath)
+        abs_output_dir = os.path.abspath(output_dir)
         
-        if not abs_filepath.endswith('.txt'):
-            return web.Response(text="Invalid file extension", status=400)
+        # Security check: file must be within output directory
+        if not abs_filepath.startswith(abs_output_dir):
+            return web.Response(text=f"Access denied: File must be within output directory", status=403)
         
-        parent_dir = os.path.dirname(abs_filepath)
-        parent_allowed = False
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(abs_filepath), exist_ok=True)
         
-        for allowed_dir in allowed_dirs:
-            try:
-                normalized_allowed = os.path.normpath(allowed_dir).lower()
-                normalized_parent = os.path.normpath(parent_dir).lower()
-                if normalized_parent.startswith(normalized_allowed + os.sep) or normalized_parent == normalized_allowed:
-                    parent_allowed = True
-                    break
-            except ValueError:
-                continue
-        
-        if not parent_allowed:
-            return web.Response(text="Access denied: Parent directory not in allowed paths", status=403)
-        
-        # Ensure parent directory exists
-        os.makedirs(parent_dir, exist_ok=True)
-        
-        if not os.access(parent_dir, os.W_OK):
-            return web.Response(text="Permission denied - cannot write to directory", status=403)
-        
-        if len(content.encode('utf-8')) > 5 * 1024 * 1024:
-            return web.Response(text="Content too large", status=400)
-        
+        # Save the content
         with open(abs_filepath, 'w', encoding='utf-8') as f:
             f.write(content)
         
         return web.json_response({
-            "message": "Description saved successfully", 
+            "message": "Caption saved successfully",
             "filepath": abs_filepath,
-            "directory": parent_dir
+            "directory": os.path.dirname(abs_filepath),
+            "filename": os.path.basename(abs_filepath)
         }, status=200)
         
-    except PermissionError:
-        return web.Response(text="Permission denied", status=403)
     except Exception as e:
-        return web.Response(text=f"Error saving description: {str(e)}", status=500)
+        return web.Response(text=f"Error saving caption: {str(e)}", status=500)
 
-@server.PromptServer.instance.routes.get("/video_scene/viewer/check_directory")
-async def viewer_check_directory(request):
-    directory = request.query.get("directory", "")
-    
-    if not directory:
-        return web.Response(text="No directory provided", status=400)
-    
-    allowed_dirs = get_allowed_directories()
-    
-    if not allowed_dirs:
-        return web.json_response({
-            "exists": False,
-            "allowed": False,
-            "readable": False,
-            "message": "No allowed directories configured"
-        }, status=200)
-    
-    try:
-        decoded_path = urllib.parse.unquote(directory)
-        abs_directory = os.path.abspath(os.path.normpath(os.path.expanduser(decoded_path)))
-        
-        if not os.path.exists(abs_directory):
-            return web.json_response({
-                "exists": False,
-                "allowed": False,
-                "readable": False,
-                "message": "Directory does not exist"
-            }, status=200)
-        
-        if not os.path.isdir(abs_directory):
-            return web.json_response({
-                "exists": False,
-                "allowed": False,
-                "readable": False,
-                "message": "Path is not a directory"
-            }, status=200)
-        
-        is_allowed = False
-        for allowed_dir in allowed_dirs:
-            try:
-                normalized_allowed = os.path.normpath(allowed_dir).lower()
-                normalized_dir = os.path.normpath(abs_directory).lower()
-                if normalized_dir.startswith(normalized_allowed + os.sep) or normalized_dir == normalized_allowed:
-                    is_allowed = True
-                    break
-            except ValueError:
-                continue
-        
-        readable = os.access(abs_directory, os.R_OK)
-        
-        message = "Directory exists"
-        if not is_allowed:
-            message += " but is not in allowed paths"
-        elif not readable:
-            message += " but is not readable"
-        
-        return web.json_response({
-            "exists": True,
-            "allowed": is_allowed,
-            "readable": readable,
-            "message": message
-        }, status=200)
-        
-    except Exception as e:
-        return web.json_response({
-            "exists": False,
-            "allowed": False,
-            "readable": False,
-            "message": f"Error checking directory: {str(e)}"
-        }, status=200)
 
 @server.PromptServer.instance.routes.get("/video_scene/viewer/read_video")
 async def viewer_read_video(request):
@@ -545,19 +285,20 @@ async def viewer_read_video(request):
     if not filepath:
         return web.Response(text="No filepath provided", status=400)
     
-    allowed_dirs = get_allowed_directories()
-    
-    if not allowed_dirs:
-        return web.Response(text="No allowed directories configured", status=500)
-    
-    is_allowed, error_msg = is_path_allowed(filepath, allowed_dirs)
-    if not is_allowed:
-        return web.Response(text=f"Access denied: {error_msg}", status=403)
+    # Get allowed directories
+    output_dir = folder_paths.get_output_directory()
+    if not output_dir:
+        return web.Response(text="No output directory configured", status=500)
     
     try:
         # Get absolute path
         decoded_path = urllib.parse.unquote(filepath)
         abs_filepath = os.path.abspath(os.path.normpath(os.path.expanduser(decoded_path)))
+        abs_output_dir = os.path.abspath(output_dir)
+        
+        # Security check - must be within output directory
+        if not abs_filepath.startswith(abs_output_dir):
+            return web.Response(text="Access denied: File not in output directory", status=403)
         
         # Check if file exists
         if not os.path.exists(abs_filepath):
@@ -606,29 +347,18 @@ async def list_scene_videos(request):
     if not directory:
         return web.Response(text="No directory provided", status=400)
     
-    allowed_dirs = get_allowed_directories()
-    
-    if not allowed_dirs:
-        return web.Response(text="No allowed directories configured", status=500)
+    output_dir = folder_paths.get_output_directory()
+    if not output_dir:
+        return web.Response(text="No output directory configured", status=500)
     
     try:
         decoded_path = urllib.parse.unquote(directory)
         abs_directory = os.path.abspath(os.path.normpath(os.path.expanduser(decoded_path)))
+        abs_output_dir = os.path.abspath(output_dir)
         
-        # Check if directory is allowed
-        dir_allowed = False
-        for allowed_dir in allowed_dirs:
-            try:
-                normalized_allowed = os.path.normpath(allowed_dir).lower()
-                normalized_dir = os.path.normpath(abs_directory).lower()
-                if normalized_dir.startswith(normalized_allowed + os.sep) or normalized_dir == normalized_allowed:
-                    dir_allowed = True
-                    break
-            except ValueError:
-                continue
-        
-        if not dir_allowed:
-            return web.Response(text="Access denied: Directory not in allowed paths", status=403)
+        # Check if directory is within output directory
+        if not abs_directory.startswith(abs_output_dir):
+            return web.Response(text="Access denied: Directory not in output directory", status=403)
         
         if not os.path.exists(abs_directory):
             return web.json_response({"videos": [], "error": "Directory not found"})
@@ -694,30 +424,17 @@ async def viewer_update_description(request):
     if not metadata_file:
         return web.Response(text="No metadata file provided", status=400)
     
-    allowed_dirs = get_allowed_directories()
-    
-    if not allowed_dirs:
-        return web.Response(text="No allowed directories configured", status=500)
+    output_dir = folder_paths.get_output_directory()
+    if not output_dir:
+        return web.Response(text="No output directory configured", status=500)
     
     try:
         decoded_path = urllib.parse.unquote(metadata_file)
         abs_metadata_file = os.path.abspath(os.path.normpath(os.path.expanduser(decoded_path)))
+        abs_output_dir = os.path.abspath(output_dir)
         
-        # Check if parent directory is allowed
-        parent_dir = os.path.dirname(abs_metadata_file)
-        parent_allowed = False
-        
-        for allowed_dir in allowed_dirs:
-            try:
-                normalized_allowed = os.path.normpath(allowed_dir).lower()
-                normalized_parent = os.path.normpath(parent_dir).lower()
-                if normalized_parent.startswith(normalized_allowed + os.sep) or normalized_parent == normalized_allowed:
-                    parent_allowed = True
-                    break
-            except ValueError:
-                continue
-        
-        if not parent_allowed:
+        # Check if file is within output directory
+        if not abs_metadata_file.startswith(abs_output_dir):
             return web.Response(text="Access denied", status=403)
         
         if not os.path.exists(abs_metadata_file):
@@ -758,29 +475,18 @@ async def check_file_exists(request):
     if not filepath:
         return web.json_response({"exists": False, "error": "No filepath provided"})
     
-    allowed_dirs = get_allowed_directories()
-    
-    if not allowed_dirs:
-        return web.json_response({"exists": False, "error": "No allowed directories configured"})
+    output_dir = folder_paths.get_output_directory()
+    if not output_dir:
+        return web.json_response({"exists": False, "error": "No output directory configured"})
     
     try:
         decoded_path = urllib.parse.unquote(filepath)
         abs_filepath = os.path.abspath(os.path.normpath(os.path.expanduser(decoded_path)))
+        abs_output_dir = os.path.abspath(output_dir)
         
-        # Check if path is allowed
-        is_allowed = False
-        for allowed_dir in allowed_dirs:
-            try:
-                normalized_allowed = os.path.normpath(allowed_dir).lower()
-                normalized_file = os.path.normpath(abs_filepath).lower()
-                if normalized_file.startswith(normalized_allowed + os.sep) or normalized_file == normalized_allowed:
-                    is_allowed = True
-                    break
-            except ValueError:
-                continue
-        
-        if not is_allowed:
-            return web.json_response({"exists": False, "error": "Path not in allowed directories"})
+        # Check if path is within output directory
+        if not abs_filepath.startswith(abs_output_dir):
+            return web.json_response({"exists": False, "error": "Path not in output directory"})
         
         exists = os.path.exists(abs_filepath)
         
@@ -859,27 +565,16 @@ async def debug_video_access(request):
     # Check if file exists
     exists = os.path.exists(abs_path)
     
-    # Get allowed directories
-    allowed_dirs = get_allowed_directories()
-    
-    # Check if path is allowed
-    is_allowed = False
-    for allowed_dir in allowed_dirs:
-        try:
-            normalized_allowed = os.path.normpath(allowed_dir).lower()
-            normalized_path = os.path.normpath(abs_path).lower()
-            if normalized_path.startswith(normalized_allowed + os.sep) or normalized_path == normalized_allowed:
-                is_allowed = True
-                break
-        except ValueError:
-            continue
-    
-    # Try to construct URL
+    # Get output directory
     output_dir = folder_paths.get_output_directory()
     abs_output_dir = os.path.abspath(output_dir) if output_dir else None
     
+    # Check if path is within output directory
+    is_in_output_dir = abs_output_dir and abs_path.startswith(abs_output_dir)
+    
+    # Try to construct URL
     relative_url = None
-    if abs_output_dir and abs_path.startswith(abs_output_dir):
+    if is_in_output_dir:
         rel_path = os.path.relpath(abs_path, abs_output_dir)
         relative_url = f"/video_scene/read_video?path={urllib.parse.quote(rel_path)}"
     
@@ -891,12 +586,11 @@ async def debug_video_access(request):
         "absolute_path": abs_path,
         "exists": exists,
         "is_file": os.path.isfile(abs_path) if exists else False,
-        "allowed_directories": allowed_dirs,
-        "is_allowed": is_allowed,
         "output_directory": output_dir,
+        "is_in_output_dir": is_in_output_dir,
         "relative_url": relative_url,
         "full_url": full_url,
-        "suggested_url": full_url if is_allowed else relative_url
+        "suggested_url": full_url if is_in_output_dir else relative_url
     })
 
 @server.PromptServer.instance.routes.get("/video_scene/debug/captions_dir")
@@ -912,3 +606,152 @@ async def debug_captions_dir(request):
         "exists": os.path.exists(captions_dir),
         "is_dir": os.path.isdir(captions_dir) if os.path.exists(captions_dir) else False
     })
+
+# ============ VIDEO SCENE VIEWER ENDPOINTS ============
+@server.PromptServer.instance.routes.get("/video_scene/viewer/read_image")
+async def viewer_read_image(request):
+    """Read image for VideoSceneViewer with full path support"""
+    filepath = request.query.get("filepath", "")
+    
+    if not filepath:
+        return web.Response(text="No filepath provided", status=400)
+    
+    output_dir = folder_paths.get_output_directory()
+    if not output_dir:
+        return web.Response(text="No output directory configured", status=500)
+    
+    try:
+        # Get absolute path
+        decoded_path = urllib.parse.unquote(filepath)
+        abs_filepath = os.path.abspath(os.path.normpath(os.path.expanduser(decoded_path)))
+        abs_output_dir = os.path.abspath(output_dir)
+        
+        # Security check - must be within output directory
+        if not abs_filepath.startswith(abs_output_dir):
+            return web.Response(text="Access denied: File not in output directory", status=403)
+        
+        # Check if file exists
+        if not os.path.exists(abs_filepath):
+            return web.Response(text="Image not found", status=404)
+        
+        # Check if it's an image file
+        if not abs_filepath.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.tiff', '.tif')):
+            return web.Response(text="Not an image file", status=400)
+        
+        # Determine content type
+        mime_type, _ = mimetypes.guess_type(abs_filepath)
+        if not mime_type:
+            if abs_filepath.lower().endswith('.png'):
+                mime_type = 'image/png'
+            elif abs_filepath.lower().endswith(('.jpg', '.jpeg')):
+                mime_type = 'image/jpeg'
+            elif abs_filepath.lower().endswith('.gif'):
+                mime_type = 'image/gif'
+            elif abs_filepath.lower().endswith('.bmp'):
+                mime_type = 'image/bmp'
+            elif abs_filepath.lower().endswith('.webp'):
+                mime_type = 'image/webp'
+            elif abs_filepath.lower().endswith(('.tiff', '.tif')):
+                mime_type = 'image/tiff'
+            else:
+                mime_type = 'application/octet-stream'
+        
+        # Read and return the image
+        with open(abs_filepath, 'rb') as f:
+            image_data = f.read()
+        
+        return web.Response(body=image_data, content_type=mime_type)
+        
+    except PermissionError:
+        return web.Response(text="Permission denied", status=403)
+    except Exception as e:
+        print(f"Error reading image {filepath}: {e}")
+        return web.Response(text=f"Error reading image: {str(e)}", status=500)
+
+@server.PromptServer.instance.routes.get("/video_scene/viewer/read_description")
+async def viewer_read_description(request):
+    """Read description for VideoSceneViewer with full path support"""
+    filepath = request.query.get("filepath", "")
+    
+    if not filepath:
+        return web.Response(text="No filepath provided", status=400)
+    
+    output_dir = folder_paths.get_output_directory()
+    if not output_dir:
+        return web.Response(text="No output directory configured", status=500)
+    
+    try:
+        # Get absolute path
+        decoded_path = urllib.parse.unquote(filepath)
+        abs_filepath = os.path.abspath(os.path.normpath(os.path.expanduser(decoded_path)))
+        abs_output_dir = os.path.abspath(output_dir)
+        
+        # Security check - must be within output directory
+        if not abs_filepath.startswith(abs_output_dir):
+            return web.Response(text="Access denied: File not in output directory", status=403)
+        
+        # Check if file exists
+        if not os.path.exists(abs_filepath):
+            return web.Response(text="Description file not found", status=404)
+        
+        # Read and return the content
+        with open(abs_filepath, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        return web.Response(text=content, status=200)
+        
+    except PermissionError:
+        return web.Response(text="Permission denied", status=403)
+    except UnicodeDecodeError:
+        return web.Response(text="File encoding error", status=500)
+    except Exception as e:
+        print(f"Error reading description {filepath}: {e}")
+        return web.Response(text=f"Error reading description: {str(e)}", status=500)
+
+@server.PromptServer.instance.routes.post("/video_scene/viewer/save_description")
+async def viewer_save_description(request):
+    """Save description for VideoSceneViewer with full path support"""
+    try:
+        data = await request.json()
+    except:
+        return web.Response(text="Invalid JSON", status=400)
+    
+    filepath = data.get("filepath", "")
+    content = data.get("content", "")
+    
+    if not filepath:
+        return web.Response(text="No filepath provided", status=400)
+    
+    output_dir = folder_paths.get_output_directory()
+    if not output_dir:
+        return web.Response(text="No output directory configured", status=500)
+    
+    try:
+        # Get absolute path
+        decoded_path = urllib.parse.unquote(filepath)
+        abs_filepath = os.path.abspath(os.path.normpath(os.path.expanduser(decoded_path)))
+        abs_output_dir = os.path.abspath(output_dir)
+        
+        # Security check - must be within output directory
+        if not abs_filepath.startswith(abs_output_dir):
+            return web.Response(text="Access denied: File not in output directory", status=403)
+        
+        # Ensure the directory exists
+        os.makedirs(os.path.dirname(abs_filepath), exist_ok=True)
+        
+        # Save the content
+        with open(abs_filepath, 'w', encoding='utf-8') as f:
+            f.write(content)
+        
+        return web.json_response({
+            "message": "Description saved successfully",
+            "filepath": abs_filepath,
+            "directory": os.path.dirname(abs_filepath),
+            "filename": os.path.basename(abs_filepath)
+        }, status=200)
+        
+    except PermissionError:
+        return web.Response(text="Permission denied", status=403)
+    except Exception as e:
+        print(f"Error saving description to {filepath}: {e}")
+        return web.Response(text=f"Error saving description: {str(e)}", status=500)

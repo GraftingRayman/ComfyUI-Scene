@@ -94,8 +94,7 @@ class VideoSceneGenerationNode:
                     "default": 23,
                     "min": 0,
                     "max": 51,
-                    "step": 1,
-                    "display": "slider"
+                    "step": 1
                 }),
                 "use_cache": ("BOOLEAN", {
                     "default": True,
@@ -121,9 +120,9 @@ class VideoSceneGenerationNode:
             }
         }
 
-    RETURN_TYPES = ("STRING", "LIST", "STRING", "STRING", "IMAGE", "LIST", "LIST")
+    RETURN_TYPES = ("STRING", "LIST", "STRING", "STRING", "IMAGE", "IMAGE", "LIST", "LIST")
     RETURN_NAMES = ("output_path", "scene_paths", "metadata_json", "selected_description", 
-                    "scene_image", "scene_video_paths", "scene_end_paths")
+                    "scene_image", "scene_image_end", "scene_video_paths", "scene_end_paths" )
     FUNCTION = "extract_scenes"
     CATEGORY = "Video Processing"
     OUTPUT_NODE = True
@@ -525,8 +524,8 @@ class VideoSceneGenerationNode:
                 self.create_progress_bar(total_scenes, "Extracting scene frames")
                 
                 for i, (timestamp, end_timestamp) in enumerate(zip(scene_timestamps, scene_end_timestamps)):
-                    # Extract start frame
-                    scene_filename = f"scene_{i:04d}_at_{timestamp:.2f}s.png"
+                    # IMPORTANT CHANGE: Use 1-based indexing for filenames (scene_0001 instead of scene_0000)
+                    scene_filename = f"scene_{i+1:04d}_at_{timestamp:.2f}s.png"  # Changed i to i+1
                     scene_path = os.path.join(images_dir, scene_filename)
                     
                     # Update progress
@@ -539,7 +538,8 @@ class VideoSceneGenerationNode:
                     if extract_end_frames:
                         # Ensure we don't extract the same frame if scene is very short
                         if end_timestamp > timestamp:
-                            end_filename = f"scene_{i:04d}_at_{timestamp:.2f}s_end.png"
+                            # IMPORTANT CHANGE: Use 1-based indexing for end frames too
+                            end_filename = f"scene_{i+1:04d}_at_{timestamp:.2f}s_end.png"  # Changed i to i+1
                             end_path = os.path.join(images_dir, end_filename)
                             
                             # Extract frame at end_timestamp (or slightly before if at scene boundary)
@@ -548,7 +548,8 @@ class VideoSceneGenerationNode:
                             print(f"  Saved end frame: {os.path.basename(end_path)}")
                         else:
                             # If scene is too short, just duplicate start frame
-                            end_filename = f"scene_{i:04d}_at_{timestamp:.2f}s_end.png"
+                            # IMPORTANT CHANGE: Use 1-based indexing for end frames too
+                            end_filename = f"scene_{i+1:04d}_at_{timestamp:.2f}s_end.png"  # Changed i to i+1
                             end_path = os.path.join(images_dir, end_filename)
                             shutil.copy2(scene_path, end_path)
                             scene_end_paths.append(end_path)
@@ -557,12 +558,14 @@ class VideoSceneGenerationNode:
             else:
                 # Just create paths without extracting
                 for i, timestamp in enumerate(scene_timestamps):
-                    scene_filename = f"scene_{i:04d}_at_{timestamp:.2f}s.png"
+                    # IMPORTANT CHANGE: Use 1-based indexing
+                    scene_filename = f"scene_{i+1:04d}_at_{timestamp:.2f}s.png"  # Changed i to i+1
                     scene_path = os.path.join(images_dir, scene_filename)
                     scene_paths.append(scene_path)
                     
                     if extract_end_frames:
-                        end_filename = f"scene_{i:04d}_at_{timestamp:.2f}s_end.png"
+                        # IMPORTANT CHANGE: Use 1-based indexing for end frames
+                        end_filename = f"scene_{i+1:04d}_at_{timestamp:.2f}s_end.png"  # Changed i to i+1
                         end_path = os.path.join(images_dir, end_filename)
                         scene_end_paths.append(end_path)
             
@@ -575,7 +578,8 @@ class VideoSceneGenerationNode:
                 self.create_progress_bar(len(scene_timestamps), "Extracting scene videos")
                 
                 for i, (start_time, end_time) in enumerate(zip(scene_timestamps, scene_end_timestamps)):
-                    video_filename = f"scene_{i:04d}_{start_time:.2f}s_to_{end_time:.2f}s.{scene_video_format}"
+                    # IMPORTANT CHANGE: Use 1-based indexing for video files
+                    video_filename = f"scene_{i+1:04d}_{start_time:.2f}s_to_{end_time:.2f}s.{scene_video_format}"  # Changed i to i+1
                     video_path = os.path.join(videos_dir, video_filename)
                     
                     # Update progress
@@ -650,6 +654,7 @@ class VideoSceneGenerationNode:
             }
             
             for i, (timestamp, end_timestamp, img_path) in enumerate(zip(scene_timestamps, scene_end_timestamps, scene_paths)):
+                # IMPORTANT: Metadata still uses 0-based internal indexing for consistency
                 # Get start frame info
                 start_txt_path = img_path.replace('.png', '.txt')
                 start_description = ""
@@ -671,7 +676,8 @@ class VideoSceneGenerationNode:
                 video_path = scene_video_paths[i] if i < len(scene_video_paths) else ""
                 
                 scene_data = {
-                    "index": i,
+                    "index": i + 1,  # IMPORTANT: Store 1-based index in metadata
+                    "internal_index": i,  # Keep 0-based index for internal use
                     "start_timestamp": timestamp,
                     "end_timestamp": end_timestamp,
                     "duration": end_timestamp - timestamp,
@@ -717,9 +723,18 @@ class VideoSceneGenerationNode:
                     "output_dir": output_dir,
                 })
         
-        # Adjust selected_scene_index from 1-based to 0-based for internal use
+        # Adjust selected_scene_index from 1-based UI to 0-based internal
+        # IMPORTANT CHANGE: The UI already uses 1-based indexing, so we just convert to 0-based
         internal_index = selected_scene_index - 1
-
+        
+        # Handle out-of-bounds indices
+        if internal_index < 0:
+            internal_index = 0
+            selected_scene_index = 1
+        elif internal_index >= len(scene_paths):
+            internal_index = len(scene_paths) - 1
+            selected_scene_index = len(scene_paths)
+        
         selected_image_path = ""
         if 0 <= internal_index < len(scene_paths):
             selected_image_path = scene_paths[internal_index]
@@ -728,6 +743,7 @@ class VideoSceneGenerationNode:
             if scene_paths:  # Fallback to first scene
                 selected_image_path = scene_paths[0]
                 internal_index = 0
+                selected_scene_index = 1
         
         # Load the image as tensor
         image_tensor = None
@@ -738,6 +754,21 @@ class VideoSceneGenerationNode:
         else:
             print(f"  - Warning: Selected image not found, using blank tensor")
             image_tensor = torch.zeros((1, 512, 512, 3), dtype=torch.float32)
+        
+        # Load the end frame image as tensor if extract_end_frames is True
+        end_image_tensor = None
+        if extract_end_frames and internal_index < len(scene_end_paths):
+            selected_end_image_path = scene_end_paths[internal_index]
+            if selected_end_image_path and os.path.exists(selected_end_image_path):
+                print(f"  - Loading end image as tensor...")
+                end_image_tensor = self.load_image_as_tensor(selected_end_image_path)
+                print(f"  - End image tensor shape: {end_image_tensor.shape}")
+            else:
+                print(f"  - Warning: Selected end image not found, using blank tensor")
+                end_image_tensor = torch.zeros((1, 512, 512, 3), dtype=torch.float32)
+        else:
+            # If extract_end_frames is False, return blank tensor
+            end_image_tensor = torch.zeros((1, 512, 512, 3), dtype=torch.float32)
         
         # Determine if this is a new scene selection or edit save
         video_changed = video_file != self.last_video_file
@@ -767,6 +798,7 @@ class VideoSceneGenerationNode:
             # If index is out of bounds, use first scene
             if scene_paths:
                 internal_index = 0
+                selected_scene_index = 1
                 scene_path = scene_paths[0]
                 txt_path = scene_path.replace('.png', '.txt')
                 if os.path.exists(txt_path):
@@ -775,7 +807,7 @@ class VideoSceneGenerationNode:
         
         print(f"\n✓ Complete! Output saved to: {scene_output_dir}")
         print(f"  - Custom directory name: {output_dir}")
-        print(f"  - Start frames: {len(scene_paths)}")
+        print(f"  - Start frames: {len(scene_paths)} (named scene_0001 to scene_{len(scene_paths):04d})")
         if extract_end_frames:
             print(f"  - End frames: {len(scene_end_paths)}")
         if extract_scene_videos:
@@ -795,10 +827,10 @@ class VideoSceneGenerationNode:
                 "scene_end_paths": [scene_end_paths],  # New: List of end frame paths
                 "scene_video_paths": [scene_video_paths],  # List of video paths
                 "total_scenes": [len(scene_paths)],  # List containing int
-                "selected_index": [selected_scene_index],  # List containing int
+                "selected_index": [selected_scene_index],  # List containing int (1-based)
             },
             "result": (scene_output_dir, scene_paths, json.dumps(metadata, indent=2), 
-                      selected_description, image_tensor, scene_video_paths, scene_end_paths)
+                      selected_description, image_tensor, end_image_tensor, scene_video_paths, scene_end_paths)
         }
     
     def return_empty(self, scene_output_dir):
@@ -814,7 +846,7 @@ class VideoSceneGenerationNode:
                 "total_scenes": [0],  # Zero in list
                 "selected_index": [1],  # 1 in list
             },
-            "result": (scene_output_dir, [], "{}", "", blank_tensor, [], [])
+            "result": (scene_output_dir, [], "{}", "", blank_tensor, [], [], blank_tensor)
         }
 
     def sanitize_filename(self, filename):

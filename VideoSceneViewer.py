@@ -30,6 +30,15 @@ class VideoSceneViewer:
                     "default": "",
                     "multiline": True,
                 }),
+                "passthru": ("BOOLEAN", {
+                    "default": False,
+                }),
+            },
+            "optional": {
+                "passthrough_image": ("IMAGE",),
+                "passthrough_text": ("STRING", {
+                    "forceInput": True
+                }),
             }
         }
 
@@ -48,33 +57,90 @@ class VideoSceneViewer:
         self.last_directory = None
         self.last_index = None
     
+    def get_output_directory(self):
+        """Get ComfyUI's output directory"""
+        try:
+            import folder_paths
+            output_dir = folder_paths.get_output_directory()
+            if not output_dir:
+                print("Warning: No output directory configured in ComfyUI")
+                return None
+            return output_dir
+        except ImportError:
+            print("Warning: folder_paths not available")
+            return None
+    
+    def get_full_path(self, scene_directory):
+        """Get full path by joining with ComfyUI's output directory if needed"""
+        output_dir = self.get_output_directory()
+        if not output_dir:
+            return scene_directory
+        
+        # If it's already an absolute path, use it
+        if os.path.isabs(scene_directory):
+            return scene_directory
+        
+        # Otherwise, join with output directory
+        full_path = os.path.join(output_dir, scene_directory)
+        return os.path.normpath(full_path)
+    
     def find_image_txt_pairs(self, scene_directory):
         """Find all image files that have an exact matching .txt file"""
-        image_files = []
         
-        if not os.path.exists(scene_directory):
-            print(f"Error: Directory not found: {scene_directory}")
+        # Get full path
+        full_directory = self.get_full_path(scene_directory)
+        
+        print(f"\n=== Looking for images in: ===")
+        print(f"Input path: '{scene_directory}'")
+        print(f"Full path: '{full_directory}'")
+        print(f"Output dir: '{self.get_output_directory()}'")
+        
+        if not os.path.exists(full_directory):
+            print(f"Error: Directory not found: {full_directory}")
             return []
         
         try:
-            # Get all files in directory
-            all_files = os.listdir(scene_directory)
+            # Debug: List all files
+            all_files = os.listdir(full_directory)
+            print(f"Total files found: {len(all_files)}")
+            
+            # List first few files for debugging
+            for i, file in enumerate(all_files[:10]):
+                print(f"  {i:3}: {file}")
+            if len(all_files) > 10:
+                print(f"  ... and {len(all_files) - 10} more files")
             
             # First, create a set of all .txt files (without extension)
             txt_basenames = set()
+            txt_files = []
             for file in all_files:
                 if file.lower().endswith('.txt'):
                     basename = os.path.splitext(file)[0]
                     txt_basenames.add(basename)
+                    txt_files.append(file)
             
-            print(f"Found {len(txt_basenames)} .txt files")
+            print(f"Found {len(txt_files)} .txt files")
+            if txt_files:
+                print(f"TXT files: {txt_files}")
             
             # Supported image extensions
-            image_extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.gif', '.webp', '.tiff'}
+            image_extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.gif', '.webp', '.tiff', '.tif'}
             
             # Now find image files that have matching .txt files
+            image_files = []
+            image_candidates = []
+            
+            # First find all image files
             for file in all_files:
-                file_path = os.path.join(scene_directory, file)
+                file_ext = os.path.splitext(file)[1].lower()
+                if file_ext in image_extensions:
+                    image_candidates.append(file)
+            
+            print(f"Found {len(image_candidates)} image files total")
+            
+            # Now check which ones have matching txt files
+            for file in all_files:
+                file_path = os.path.join(full_directory, file)
                 if not os.path.isfile(file_path):
                     continue
                 
@@ -90,6 +156,7 @@ class VideoSceneViewer:
                             "filename": file,
                             "basename": basename
                         })
+                        print(f"  ✓ MATCH: {file} -> {basename}.txt")
             
             # Natural sort for better ordering
             def natural_sort_key(item):
@@ -100,19 +167,27 @@ class VideoSceneViewer:
             
             image_files.sort(key=natural_sort_key)
             
-            print(f"Found {len(image_files)} image files with matching .txt descriptions")
+            print(f"Total matched image-txt pairs: {len(image_files)}")
             
             return image_files
             
         except Exception as e:
             print(f"Error finding image/txt pairs: {e}")
+            import traceback
+            traceback.print_exc()
             return []
     
     def load_image_as_tensor(self, image_path):
         """Load image and convert to ComfyUI compatible tensor"""
         try:
+            print(f"Loading image: {image_path}")
+            
             # Load image
             image = Image.open(image_path).convert("RGB")
+            
+            # Get image dimensions
+            width, height = image.size
+            print(f"  Image size: {width}x{height}")
             
             # Convert to numpy array
             image_array = np.array(image).astype(np.float32) / 255.0
@@ -120,10 +195,13 @@ class VideoSceneViewer:
             # Convert to tensor (ComfyUI format: [1, H, W, C])
             image_tensor = torch.from_numpy(image_array).unsqueeze(0)
             
+            print(f"  Tensor shape: {image_tensor.shape}")
             return image_tensor
             
         except Exception as e:
             print(f"Error loading image {image_path}: {e}")
+            import traceback
+            traceback.print_exc()
             # Return blank image tensor
             return torch.zeros((1, 512, 512, 3), dtype=torch.float32)
     
@@ -135,6 +213,8 @@ class VideoSceneViewer:
                 with open(txt_path, 'r', encoding='utf-8') as f:
                     description = f.read().strip()
                 print(f"Loaded description from {txt_path}, length: {len(description)}")
+                if description:
+                    print(f"First 100 chars: {description[:100]}")
                 return description
             else:
                 print(f"Description file not found: {txt_path}")
@@ -144,47 +224,76 @@ class VideoSceneViewer:
             print(f"Error reading description file: {e}")
             return ""
     
-    def view_scene(self, scene_directory, selected_scene_index, scene_description):
+    def view_scene(self, scene_directory, selected_scene_index, scene_description, passthru=False, passthrough_image=None, passthrough_text=None):
         """View scene from directory and return image and description"""
         
         print(f"\n=== Video Scene Viewer ===")
-        print(f"Input directory: {scene_directory}")
+        print(f"Input directory: '{scene_directory}'")
         print(f"Selected index: {selected_scene_index}")
-        print(f"Scene description widget value: '{scene_description[:100] if scene_description else 'empty'}...'")
+        print(f"Description input: '{scene_description[:50] if scene_description else 'empty'}...'")
+        print(f"Passthru mode: {passthru}")
+        
+        # Check if passthru mode is enabled OR if passthrough inputs are connected
+        if passthru and passthrough_image is not None and passthrough_text is not None:
+            print("Passthru enabled with passthrough inputs - passing through")
+            return {
+                "ui": {
+                    "text": [passthrough_text],
+                    "scene_filenames": [[]],
+                    "scene_paths": [[]],
+                    "scene_basenames": [[]],
+                    "txt_paths": [[]],
+                    "total_scenes": [0],
+                    "selected_index": [1],
+                    "directory": [""],
+                },
+                "result": (passthrough_image, passthrough_text)
+            }
+        
+        # Get output directory info
+        output_dir = self.get_output_directory()
+        if output_dir:
+            print(f"ComfyUI Output Directory: {output_dir}")
+        
+        # Get full directory path
+        full_directory = self.get_full_path(scene_directory)
+        print(f"Full directory path: {full_directory}")
         
         # Validate directory
-        if not scene_directory or not os.path.exists(scene_directory):
-            print(f"Error: Directory not found or not specified: {scene_directory}")
+        if not scene_directory or not os.path.exists(full_directory):
+            print(f"Error: Directory not found: {full_directory}")
             return self.return_empty()
         
         # Find image files that have matching .txt files
         scene_files_info = self.find_image_txt_pairs(scene_directory)
         
         if not scene_files_info:
-            print(f"No image files with matching .txt descriptions found in {scene_directory}")
+            print(f"No image files with matching .txt descriptions found")
             return self.return_empty()
         
         total_scenes = len(scene_files_info)
         
+        # Ensure selected_scene_index is valid
+        if selected_scene_index < 1:
+            selected_scene_index = 1
+            print(f"Warning: selected_scene_index was < 1, resetting to 1")
+        elif selected_scene_index > total_scenes:
+            selected_scene_index = total_scenes
+            print(f"Warning: selected_scene_index was > total_scenes, resetting to {total_scenes}")
+        
         # Adjust selected_scene_index from 1-based to 0-based
         internal_index = selected_scene_index - 1
-        
-        # Ensure index is within bounds
-        if internal_index < 0:
-            internal_index = 0
-            selected_scene_index = 1
-        elif internal_index >= total_scenes:
-            internal_index = total_scenes - 1
-            selected_scene_index = total_scenes
         
         # Get selected scene info
         selected_scene_info = scene_files_info[internal_index]
         scene_path = selected_scene_info["path"]
         txt_path = os.path.join(os.path.dirname(scene_path), f"{selected_scene_info['basename']}.txt")
         
+        print(f"\n=== Scene Details ===")
         print(f"Total scenes with descriptions: {total_scenes}")
         print(f"Selected scene: {selected_scene_index}")
         print(f"Image file: {selected_scene_info['filename']}")
+        print(f"Image path: {scene_path}")
         print(f"Description file: {txt_path}")
         
         # Determine if this is a new scene selection or if user is saving
@@ -194,6 +303,8 @@ class VideoSceneViewer:
         # Update tracking
         self.last_directory = scene_directory
         self.last_index = selected_scene_index
+        
+        print(f"Directory changed: {directory_changed}, Index changed: {index_changed}")
         
         # Get description
         final_description = ""
@@ -213,10 +324,12 @@ class VideoSceneViewer:
         else:
             # Load fresh description from file (new scene or first load)
             final_description = self.get_description_from_txt(txt_path)
-            print(f"Loaded fresh description from file")
+            if not final_description and scene_description and scene_description.strip():
+                # If txt file is empty but UI has content, use UI content
+                final_description = scene_description
+                print(f"Using description from UI input")
         
         # Load image as tensor
-        print(f"Loading image: {selected_scene_info['filename']}")
         image_tensor = self.load_image_as_tensor(scene_path)
         
         # Prepare data for UI
@@ -235,19 +348,19 @@ class VideoSceneViewer:
         print(f"  - Selected scene: {selected_scene_index}")
         print(f"  - Description length: {len(final_description)}")
         print(f"  - Image shape: {image_tensor.shape}")
-        print(f"  - Using secured API routes for file access")
+        print(f"  - Full image path for API: {scene_path}")
         
         # Return UI data for frontend
         return {
             "ui": {
                 "text": [final_description],
                 "scene_filenames": [scene_filenames],
-                "scene_paths": [scene_paths],  # Full paths for new API
+                "scene_paths": [scene_paths],  # Full paths for API
                 "scene_basenames": [scene_basenames],
                 "txt_paths": [txt_paths],  # Full paths to txt files
                 "total_scenes": [total_scenes],
                 "selected_index": [selected_scene_index],
-                "directory": [scene_directory],
+                "directory": [full_directory],  # Full directory path
             },
             "result": (image_tensor, final_description)
         }

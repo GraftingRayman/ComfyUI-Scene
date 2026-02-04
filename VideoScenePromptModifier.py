@@ -10,6 +10,9 @@ class VideoScenePromptModifier:
             "optional": {
                 "image_style": (["anime", "photorealistic", "oil painting", "sketch", "watercolor", "digital art", "comic book", "cartoon", "3D render", "cinematic", "keep original"], {"default": "keep original"}),
                 "image_lighting": (["natural", "dramatic", "soft", "harsh", "golden hour", "blue hour", "studio", "moody", "backlit", "neon", "keep original"], {"default": "keep original"}),
+                "action": ("STRING", {"multiline": True, "default": ""}),
+                "action_details": ("STRING", {"multiline": True, "default": ""}),
+                "post_prompt": ("STRING", {"multiline": True, "default": ""}),
             }
         }
     
@@ -18,41 +21,34 @@ class VideoScenePromptModifier:
     FUNCTION = "modify_prompt"
     CATEGORY = "Custom Nodes/Prompt Tools"
 
-    def modify_prompt(self, original_prompt, image_style="keep original", image_lighting="keep original"):
-        modified_prompt = original_prompt
+    def modify_prompt(self, original_prompt, image_style="keep original", image_lighting="keep original", action="", action_details="", post_prompt=""):
+        # Build the modified prompt in the specified order
+        parts = []
         
-        # Function to replace a specific pattern
-        def replace_section(pattern, new_value, prompt_text):
-            if new_value != "keep original":
-                return re.sub(
-                    pattern,
-                    f'Image {new_value[0]}: {new_value[1]}.',
-                    prompt_text,
-                    count=1
-                )
-            return prompt_text
-        
-        # Replace image style if needed
+        # Add image style
         if image_style != "keep original":
-            modified_prompt = replace_section(
-                r'Image style:\s*[^.]+\.',
-                ("style", image_style),
-                modified_prompt
-            )
+            parts.append(f"Image style: {image_style}.")
         
-        # Replace image lighting if needed
+        # Add image lighting
         if image_lighting != "keep original":
-            modified_prompt = replace_section(
-                r'Image lighting:\s*[^.]+\.',
-                ("lighting", image_lighting),
-                modified_prompt
-            )
+            parts.append(f"Image lighting: {image_lighting}.")
         
-        # If the pattern doesn't exist, add it
-        if image_style != "keep original" and "Image style:" not in modified_prompt:
-            modified_prompt = f"Image style: {image_style}. {modified_prompt}"
+        # Add action
+        if action.strip():
+            parts.append(action.strip())
         
-        if image_lighting != "keep original" and "Image lighting:" not in modified_prompt:
-            modified_prompt = f"Image lighting: {image_lighting}. {modified_prompt}"
+        # Add action details
+        if action_details.strip():
+            parts.append(action_details.strip())
+        
+        # Add original prompt
+        parts.append(original_prompt)
+        
+        # Add post prompt
+        if post_prompt.strip():
+            parts.append(post_prompt.strip())
+        
+        # Join all parts with spaces
+        modified_prompt = " ".join(parts)
         
         return (modified_prompt,)

@@ -1,3 +1,10 @@
+Welcome to my git
+
+If you would like to support me in any way, anything helps
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)]([https://ko-fi.com/J5N221K0D5](https://ko-fi.com/graftingrayman))
+
+
 # ComfyUI-Scene
 
 This ComfyUI extension provides a complete workflow for analyzing video content, generating scene descriptions, and creating AI image prompts. It consists of three interconnected nodes that work together to transform video content into usable AI art prompts with visual previews.
